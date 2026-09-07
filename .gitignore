@@ -1,0 +1,22 @@
+# Generated evaluation state and artifacts
+.tmp/
+.work/
+datasets/
+/runs/
+
+# Dependencies and test output
+node_modules/
+coverage/
+.nyc_output/
+
+# Local configuration and logs
+*.log
+.env
+.env.*
+!.env.example
+
+# Editor and operating-system metadata
+.DS_Store
+.idea/
+.vscode/
+*.swp

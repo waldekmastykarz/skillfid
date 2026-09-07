@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>
+    (() => {
+      const param = new URLSearchParams(window.location.search).get("clawpilotTheme");
+      const theme =
+        param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
+  <title>Skill evaluation report</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --cp-bg: #f7f4ef;
+      --cp-bg-elevated: #fcfbf8;
+      --cp-surface: #ffffff;
+      --cp-surface-soft: #f5f5f5;
+      --cp-border: #dedede;
+      --cp-border-strong: #919191;
+      --cp-text: #242424;
+      --cp-text-muted: #5c5c5c;
+      --cp-text-soft: #6f6f6f;
+      --cp-accent: #b11f4b;
+      --cp-accent-hover: #9a1a41;
+      --cp-accent-soft: rgba(177, 31, 75, 0.08);
+      --cp-accent-fg: #ffffff;
+      --cp-success: #16a34a;
+      --cp-danger: #dc2626;
+      --cp-warning: #f59e0b;
+      --cp-link: #0078d4;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.12);
+      --cp-overlay: rgba(255, 255, 255, 0.8);
+      --cp-panel: rgba(255, 255, 255, 0.86);
+      --cp-panel-strong: rgba(255, 255, 255, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.55);
+      --cp-highlight: rgba(177, 31, 75, 0.12);
+    }
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --cp-bg: #3d3b3a;
+      --cp-bg-elevated: #343231;
+      --cp-surface: #292929;
+      --cp-surface-soft: #2e2e2e;
+      --cp-border: #474747;
+      --cp-border-strong: #5f5f5f;
+      --cp-text: #dedede;
+      --cp-text-muted: #919191;
+      --cp-text-soft: #b0b0b0;
+      --cp-accent: #fd8ea1;
+      --cp-accent-hover: #fb7b91;
+      --cp-accent-soft: rgba(253, 142, 161, 0.14);
+      --cp-accent-fg: #1a1a1a;
+      --cp-success: #4ade80;
+      --cp-danger: #f87171;
+      --cp-warning: #fbbf24;
+      --cp-link: #4da6ff;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+      --cp-overlay: rgba(41, 41, 41, 0.88);
+      --cp-panel: rgba(41, 41, 41, 0.72);
+      --cp-panel-strong: rgba(41, 41, 41, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.04);
+      --cp-highlight: rgba(253, 142, 161, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--cp-bg);
+      color: var(--cp-text);
+      font-family: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif;
+      letter-spacing: 0;
+    }
+    button, input, select { font: inherit; }
+    button, select { cursor: pointer; }
+    a { color: var(--cp-link); }
+    .shell { width: min(1180px, calc(100% - 40px)); margin: 0 auto; }
+    .topbar {
+      border-bottom: 1px solid var(--cp-border);
+      background: var(--cp-bg-elevated);
+    }
+    .topbar-inner {
+      min-height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+    .product { font-size: 14px; font-weight: 700; }
+    .nav { display: flex; gap: 20px; }
+    .nav a { color: var(--cp-text-muted); font-size: 13px; text-decoration: none; }
+    .nav a:hover { color: var(--cp-text); }
+    .masthead { padding: 48px 0 36px; border-bottom: 1px solid var(--cp-border); }
+    .eyebrow {
+      margin: 0 0 12px;
+      color: var(--cp-accent);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+    h1 { margin: 0; max-width: 760px; font-size: clamp(34px, 6vw, 62px); line-height: 1; font-weight: 650; }
+    .lede { max-width: 720px; margin: 18px 0 0; color: var(--cp-text-muted); font-size: 18px; line-height: 1.55; }
+    .meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 20px; margin-top: 24px; color: var(--cp-text-soft); font-size: 13px; }
+    .run-id {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 4px 10px;
+      border: 1px solid var(--cp-border-strong);
+      border-radius: 0.625rem;
+      color: var(--cp-text);
+      background: var(--cp-surface);
+      font-weight: 600;
+    }
+    main section { padding: 40px 0; border-bottom: 1px solid var(--cp-border); }
+    .section-heading { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 24px; }
+    h2 { margin: 0; font-size: 24px; font-weight: 650; }
+    h3 { margin: 0; font-size: 16px; }
+    .section-note { max-width: 580px; margin: 6px 0 0; color: var(--cp-text-muted); line-height: 1.5; }
+    .verdict {
+      display: grid;
+      grid-template-columns: minmax(0, 1.5fr) minmax(240px, 0.7fr);
+      gap: 32px;
+      align-items: center;
+      padding: 28px;
+      border: 1px solid var(--cp-border-strong);
+      border-radius: 16px;
+      background: var(--cp-surface);
+    }
+    .verdict .verdict-label { margin: 0 0 8px; color: var(--cp-accent); font-size: 13px; font-weight: 700; text-transform: uppercase; }
+    .verdict h2 { font-size: 30px; }
+    .verdict p { margin: 10px 0 0; color: var(--cp-text-muted); line-height: 1.5; }
+    .verdict-score { text-align: right; }
+    .score-value { display: block; font-size: 52px; line-height: 1; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .score-caption { display: block; margin-top: 8px; color: var(--cp-text-muted); }
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 16px; }
+    .metric { min-width: 0; padding: 20px; border: 1px solid var(--cp-border); border-radius: 16px; background: var(--cp-surface); }
+    .metric-value { display: block; font-size: 25px; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .metric-value.success { color: var(--cp-success); }
+    .metric-label { display: block; margin-top: 8px; color: var(--cp-text-muted); font-size: 13px; }
+    .counts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+    .distribution-counts { grid-template-columns: repeat(5, 1fr); }
+    .count { padding: 18px 0; border-top: 2px solid var(--cp-border); }
+    .count strong { display: block; font-size: 26px; font-variant-numeric: tabular-nums; }
+    .count span { color: var(--cp-text-muted); font-size: 13px; }
+    .action-list { display: grid; gap: 10px; }
+    .action {
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: start;
+      padding: 16px 0;
+      border-top: 1px solid var(--cp-border);
+    }
+    .priority {
+      display: grid;
+      place-items: center;
+      width: 36px;
+      height: 36px;
+      border: 1px solid var(--cp-border-strong);
+      border-radius: 50%;
+      font-weight: 700;
+    }
+    .action-file { color: var(--cp-link); font-family: Consolas, "Courier New", Courier, monospace; font-size: 13px; }
+    .action-changes { display: grid; gap: 8px; margin: 10px 0 0; padding-left: 20px; color: var(--cp-text-muted); font-size: 14px; line-height: 1.45; }
+    .change-impact { margin-left: 6px; color: var(--cp-text-soft); font-size: 12px; white-space: nowrap; }
+    .affected { color: var(--cp-text-muted); font-size: 12px; white-space: nowrap; }
+    .filters { display: grid; grid-template-columns: minmax(220px, 1fr) 180px 180px; gap: 10px; margin-bottom: 14px; }
+    .control {
+      width: 100%;
+      min-height: 40px;
+      padding: 8px 12px;
+      border: 1px solid var(--cp-border-strong);
+      border-radius: 0.625rem;
+      color: var(--cp-text);
+      background: var(--cp-surface);
+    }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--cp-border); border-radius: 16px; background: var(--cp-surface); }
+    table { width: 100%; min-width: 820px; border-collapse: collapse; }
+    th, td { padding: 13px 14px; border-bottom: 1px solid var(--cp-border); text-align: left; vertical-align: middle; }
+    th { color: var(--cp-text-muted); background: var(--cp-surface-soft); font-size: 12px; font-weight: 650; }
+    td { font-size: 13px; }
+    tbody tr { cursor: pointer; }
+    tbody tr:hover, tbody tr:focus { background: var(--cp-accent-soft); outline: none; }
+    tbody tr:last-child td { border-bottom: 0; }
+    .test-name { max-width: 400px; font-weight: 600; }
+    .numeric { text-align: right; font-variant-numeric: tabular-nums; }
+    .status { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+    .status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--cp-border-strong); }
+    .status.perfect::before, .status.strong::before { background: var(--cp-success); }
+    .status.mixed::before { background: var(--cp-warning); }
+    .status.weak::before, .status.zero::before { background: var(--cp-danger); }
+    .empty { padding: 32px; text-align: center; color: var(--cp-text-muted); }
+    .detail {
+      margin-top: 14px;
+      padding: 24px;
+      border: 1px solid var(--cp-border);
+      border-radius: 16px;
+      background: var(--cp-surface);
+    }
+    .detail[hidden] { display: none; }
+    .detail-head { display: flex; justify-content: space-between; gap: 24px; align-items: start; }
+    .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 22px; }
+    .detail-label { margin: 0 0 6px; color: var(--cp-text-muted); font-size: 12px; font-weight: 650; text-transform: uppercase; }
+    .detail p { line-height: 1.55; }
+    .trial-evidence { margin-top: 24px; }
+    .trial-list { display: grid; gap: 8px; margin-top: 10px; }
+    .trial {
+      border: 1px solid var(--cp-border);
+      border-radius: 0.625rem;
+      background: var(--cp-surface-soft);
+    }
+    .trial summary { padding: 12px 14px; cursor: pointer; font-weight: 650; }
+    .trial-body { padding: 0 14px 14px; }
+    .trial-answer { margin: 0; white-space: pre-wrap; }
+    .trial-findings { margin: 12px 0 0; padding-left: 20px; color: var(--cp-text-muted); }
+    .close {
+      width: 36px;
+      height: 36px;
+      border: 1px solid var(--cp-border);
+      border-radius: 0.625rem;
+      color: var(--cp-text);
+      background: var(--cp-surface);
+      font-size: 20px;
+    }
+    .close:hover { border-color: var(--cp-border-strong); }
+    footer { padding: 28px 0 48px; color: var(--cp-text-muted); font-size: 12px; }
+    @media (max-width: 800px) {
+      .shell { width: min(100% - 24px, 1180px); }
+      .nav { display: none; }
+      .masthead { padding-top: 32px; }
+      .verdict, .detail-grid { grid-template-columns: 1fr; }
+      .verdict-score { text-align: left; }
+      .metrics { grid-template-columns: repeat(2, 1fr); }
+      .counts { grid-template-columns: repeat(2, 1fr); }
+      .filters { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 480px) {
+      h1 { font-size: 36px; }
+      .metrics, .counts { grid-template-columns: 1fr; }
+      .metric { padding: 16px; }
+      .verdict { padding: 20px; }
+      .action { grid-template-columns: 38px minmax(0, 1fr); }
+      .affected { grid-column: 2; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="topbar">
+      <div class="shell topbar-inner">
+        <div class="product">skillfid</div>
+        <nav class="nav" aria-label="Report sections">
+          <a href="#outcome">Outcome</a>
+          <a href="#findings">Improvements</a>
+          <a href="#analyzed">Scope</a>
+          <a href="#tests">Evidence</a>
+        </nav>
+      </div>
+    </div>
+    <div class="masthead">
+      <div class="shell">
+        <p class="eyebrow">Skill evaluation report</p>
+        <h1 id="report-title"></h1>
+        <p class="lede">Does the skill help an agent use the source guidance correctly? This report compares unaided answers with skill-assisted answers, then traces remaining failures to changes you can make.</p>
+        <div class="meta">
+          <span class="run-id" id="run-id"></span>
+          <span id="evaluated-at"></span>
+          <span id="question-total"></span>
+          <span id="trial-total"></span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section id="outcome">
+      <div class="shell">
+        <div class="verdict">
+          <div>
+            <p class="verdict-label" id="verdict-label"></p>
+            <h2 id="verdict-headline"></h2>
+            <p id="verdict-detail"></p>
+          </div>
+          <div class="verdict-score">
+            <span class="score-value" id="skill-score"></span>
+            <span class="score-caption">skill-assisted score</span>
+          </div>
+        </div>
+        <div class="metrics" aria-label="Evaluation metrics">
+          <div class="metric"><span class="metric-value" id="closed-book-score"></span><span class="metric-label">Without the skill</span></div>
+          <div class="metric"><span class="metric-value success" id="uplift-score"></span><span class="metric-label">Percentage-point uplift</span></div>
+          <div class="metric"><span class="metric-value" id="fully-correct"></span><span class="metric-label">Questions perfect in every trial</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="findings">
+      <div class="shell">
+        <div class="section-heading">
+          <div><h2 id="findings-title">Concrete fix targets</h2><p class="section-note" id="findings-note">Only diagnoses with a specific file target appear here. They remain proposals for review, not confirmed changes.</p></div>
+        </div>
+        <h3 id="recommendations-title">Recommended changes</h3>
+        <div class="action-list" id="recommendations" style="margin-top: 12px"></div>
+      </div>
+    </section>
+
+    <section id="distribution">
+      <div class="shell">
+        <div class="section-heading">
+          <div><h2>Score distribution</h2><p class="section-note">Question scores average all skill-assisted trials. Bands distinguish marginal misses from consequential failures.</p></div>
+        </div>
+        <div class="counts distribution-counts">
+          <div class="count"><strong id="perfect-count"></strong><span>Perfect: 100%</span></div>
+          <div class="count"><strong id="strong-count"></strong><span>Strong: 90%–&lt;100%</span></div>
+          <div class="count"><strong id="mixed-count"></strong><span>Mixed: 70%–&lt;90%</span></div>
+          <div class="count"><strong id="weak-count"></strong><span>Weak: &gt;0%–&lt;70%</span></div>
+          <div class="count"><strong id="zero-count"></strong><span>Zero: 0%</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="analyzed">
+      <div class="shell">
+        <div class="section-heading">
+          <div><h2>What was analyzed</h2><p class="section-note">The evaluation covers the published source set and the skill generated from it. Every question is grounded in evidence from those documents.</p></div>
+        </div>
+        <div class="counts">
+          <div class="count"><strong id="document-count"></strong><span>source documents</span></div>
+          <div class="count"><strong id="knowledge-count"></strong><span>knowledge items</span></div>
+          <div class="count"><strong id="question-count"></strong><span>grounded questions</span></div>
+          <div class="count"><strong id="judgment-count"></strong><span>answers judged</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tests">
+      <div class="shell">
+        <div class="section-heading">
+          <div><h2>Test evidence</h2><p class="section-note"><span id="result-count"></span> questions connect aggregate scores to source evidence, each recorded answer, and criterion-level judge findings.</p></div>
+        </div>
+        <div class="filters">
+          <input class="control" id="search" type="search" placeholder="Search questions, evidence, or diagnoses" aria-label="Search questions, evidence, or diagnoses">
+          <select class="control" id="status-filter" aria-label="Filter by result">
+            <option value="all">All results</option>
+            <option value="perfect">Perfect</option>
+            <option value="strong">Strong</option>
+            <option value="mixed">Mixed</option>
+            <option value="weak">Weak</option>
+            <option value="zero">Zero</option>
+          </select>
+          <select class="control" id="cause-filter" aria-label="Filter by diagnosed cause">
+            <option value="all">All causes</option>
+            <option value="none">No issue</option>
+            <option value="skill_activation">Activation</option>
+            <option value="skill_knowledge_gap">Knowledge gap</option>
+            <option value="skill_retrieval">Retrieval</option>
+            <option value="grounding">Grounding</option>
+            <option value="answer_variability">Answer variability</option>
+            <option value="test_or_model_limitation">Test or model limitation</option>
+            <option value="unknown">Unknown</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Question</th><th>Result</th><th class="numeric">Without skill</th><th class="numeric">With skill</th><th>Diagnosis</th></tr></thead>
+            <tbody id="test-rows"></tbody>
+          </table>
+          <div class="empty" id="empty" hidden>No tests match these filters.</div>
+        </div>
+        <article class="detail" id="detail" hidden aria-live="polite">
+          <div class="detail-head"><div><p class="detail-label">Selected test</p><h3 id="detail-question"></h3></div><button class="close" id="close-detail" type="button" aria-label="Close test details" title="Close">×</button></div>
+          <div class="detail-grid">
+            <div><p class="detail-label">What the answer needed</p><p id="detail-criterion"></p><p class="detail-label">Judge finding</p><p id="detail-rationale"></p></div>
+            <div><p class="detail-label">Source evidence</p><p id="detail-source"></p><p class="detail-label">Diagnosis evidence</p><p id="detail-diagnosis"></p><p class="detail-label">Recommended change</p><p id="detail-fix"></p></div>
+          </div>
+          <div class="trial-evidence"><p class="detail-label">Recorded trial answers</p><div class="trial-list" id="detail-trials"></div></div>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer><div class="shell" id="report-provenance"></div></footer>
+
+  <script>
+    const report = __SKILLFID_REPORT_DATA__;
+    const tests = report.tests;
+    const labels = { perfect: "Perfect", strong: "Strong", mixed: "Mixed", weak: "Weak", zero: "Zero", none: "No issue", multiple: "Multiple diagnoses", skill_activation: "Activation", skill_knowledge_gap: "Knowledge gap", skill_retrieval: "Retrieval", grounding: "Grounding", answer_variability: "Answer variability", interpretation: "Interpretation", application: "Application", test_or_model_limitation: "Test or model limitation", unknown: "Unresolved" };
+    const rows = document.getElementById("test-rows");
+    const empty = document.getElementById("empty");
+    const resultCount = document.getElementById("result-count");
+    const search = document.getElementById("search");
+    const statusFilter = document.getElementById("status-filter");
+    const causeFilter = document.getElementById("cause-filter");
+    const detail = document.getElementById("detail");
+
+    document.title = `${report.title} evaluation report`;
+    document.getElementById("report-title").textContent = report.title;
+    document.getElementById("run-id").textContent = report.runId;
+    document.getElementById("evaluated-at").textContent = `Evaluated ${report.createdAt}`;
+    document.getElementById("question-total").textContent = `${report.counts.questions} questions`;
+    document.getElementById("trial-total").textContent = `${report.trialsPerQuestion} trial${report.trialsPerQuestion === 1 ? "" : "s"} per condition`;
+    document.getElementById("verdict-label").textContent = report.verdict.label;
+    document.getElementById("verdict-headline").textContent = report.verdict.headline;
+    document.getElementById("verdict-detail").textContent = report.verdict.detail;
+    document.getElementById("skill-score").textContent = report.scores.skill;
+    document.getElementById("closed-book-score").textContent = report.scores.closedBook;
+    document.getElementById("uplift-score").textContent = report.scores.uplift;
+    document.getElementById("fully-correct").textContent = `${report.counts.fullyCorrect} / ${report.counts.questions}`;
+    document.getElementById("document-count").textContent = report.counts.documents;
+    document.getElementById("knowledge-count").textContent = report.counts.knowledge;
+    document.getElementById("question-count").textContent = report.counts.questions;
+    document.getElementById("judgment-count").textContent = report.counts.judgments;
+    document.getElementById("perfect-count").textContent = report.distribution.perfect;
+    document.getElementById("strong-count").textContent = report.distribution.strong;
+    document.getElementById("mixed-count").textContent = report.distribution.mixed;
+    document.getElementById("weak-count").textContent = report.distribution.weak;
+    document.getElementById("zero-count").textContent = report.distribution.zero;
+    document.getElementById("report-provenance").textContent = [`skillfid ${report.evaluatorVersion}`, report.runId, report.datasetId, report.baselineId, `${report.model} subject`, `${report.judgeModel} judge`].filter(Boolean).join(" · ");
+
+    const recommendations = document.getElementById("recommendations");
+    if (!report.recommendations.length) {
+      document.getElementById("findings-title").textContent = "No changes recommended";
+      document.getElementById("findings-note").textContent = "Every tested skill-assisted answer received a perfect score.";
+      document.getElementById("recommendations-title").hidden = true;
+    } else {
+      report.recommendations.forEach((recommendation, index) => {
+        const action = document.createElement("div");
+        action.className = "action";
+        const priority = document.createElement("span");
+        priority.className = "priority";
+        priority.textContent = String(index + 1);
+        const content = document.createElement("div");
+        const heading = document.createElement("strong");
+        heading.className = "action-file";
+        heading.textContent = recommendation.file;
+        const changes = document.createElement("ul");
+        changes.className = "action-changes";
+        recommendation.changes.forEach((change) => {
+          const item = document.createElement("li");
+          const text = document.createElement("span");
+          text.textContent = change.recommendation;
+          item.appendChild(text);
+          if (change.affectedTests > 1) {
+            const impact = document.createElement("span");
+            impact.className = "change-impact";
+            impact.textContent = `${change.affectedTests} tests`;
+            item.appendChild(impact);
+          }
+          changes.appendChild(item);
+        });
+        content.append(heading, changes);
+        const affected = document.createElement("span");
+        affected.className = "affected";
+        affected.textContent = `${recommendation.affectedTests} test${recommendation.affectedTests === 1 ? "" : "s"}`;
+        action.append(priority, content, affected);
+        recommendations.appendChild(action);
+      });
+    }
+
+    function showDetail(test) {
+      document.getElementById("detail-question").textContent = test.question;
+      document.getElementById("detail-criterion").textContent = test.criterion;
+      document.getElementById("detail-rationale").textContent = test.rationale;
+      document.getElementById("detail-source").textContent = test.source;
+      document.getElementById("detail-diagnosis").textContent = test.diagnosis?.evidence?.join(" ") || "No diagnosis recorded.";
+      document.getElementById("detail-fix").textContent = test.fix;
+      const trials = document.getElementById("detail-trials");
+      trials.replaceChildren();
+      [["Skill-assisted", test.trials.skill], ["Without skill", test.trials.closedBook]].forEach(([condition, entries]) => {
+        entries.forEach((entry) => {
+          const item = document.createElement("details");
+          item.className = "trial";
+          const summary = document.createElement("summary");
+          summary.textContent = `${condition} · trial ${entry.trial + 1} · ${entry.score}`;
+          const body = document.createElement("div");
+          body.className = "trial-body";
+          const answer = document.createElement("p");
+          answer.className = "trial-answer";
+          answer.textContent = entry.answer || "No answer text recorded.";
+          body.appendChild(answer);
+          if (entry.failedCriteria.length) {
+            const findings = document.createElement("ul");
+            findings.className = "trial-findings";
+            entry.failedCriteria.forEach((finding) => {
+              const row = document.createElement("li");
+              row.textContent = finding;
+              findings.appendChild(row);
+            });
+            body.appendChild(findings);
+          }
+          item.append(summary, body);
+          trials.appendChild(item);
+        });
+      });
+      detail.hidden = false;
+      detail.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    function render() {
+      const query = search.value.trim().toLowerCase();
+      const filtered = tests.filter((test) => {
+        const matchesText = !query || `${test.question} ${test.source} ${labels[test.cause] ?? test.cause}`.toLowerCase().includes(query);
+        const matchesStatus = statusFilter.value === "all" || test.status === statusFilter.value;
+        const matchesCause = causeFilter.value === "all" || test.cause === causeFilter.value;
+        return matchesText && matchesStatus && matchesCause;
+      });
+      rows.replaceChildren();
+      filtered.forEach((test) => {
+        const row = document.createElement("tr");
+        row.tabIndex = 0;
+        row.innerHTML = `<td class="test-name"></td><td><span class="status ${test.status}">${labels[test.status]}</span></td><td class="numeric">${test.baseline}</td><td class="numeric">${test.skill}</td><td></td>`;
+        row.children[0].textContent = test.question;
+        row.children[4].textContent = labels[test.cause] ?? test.cause;
+        row.addEventListener("click", () => showDetail(test));
+        row.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); showDetail(test); } });
+        rows.appendChild(row);
+      });
+      resultCount.textContent = String(filtered.length);
+      empty.hidden = filtered.length !== 0;
+      document.querySelector("table").hidden = filtered.length === 0;
+      detail.hidden = true;
+    }
+
+    search.addEventListener("input", render);
+    statusFilter.addEventListener("change", render);
+    causeFilter.addEventListener("change", render);
+    document.getElementById("close-detail").addEventListener("click", () => { detail.hidden = true; });
+    render();
+  </script>
+</body>
+</html>

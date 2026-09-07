@@ -1,0 +1,28 @@
+{
+  "calibration": {
+    "judgeConsensus": {
+      "additionalJudgmentsOnDisagreement": 2,
+      "initialJudgments": 3,
+      "policyVersion": "1",
+      "supermajorityVotes": 4
+    },
+    "judgeModel": "gpt-5.6-sol",
+    "model": "gpt-5.6-sol",
+    "oraclePromptVersion": "3",
+    "reasoningEffort": "medium",
+    "requiredScore": 1
+  },
+  "copilotCliVersion": "GitHub Copilot CLI 1.0.80.",
+  "corpusRevision": "89d52bd38d02150c960afaeca5f289022d5e621fe5e69a6e084745f0f102c57e",
+  "createdAt": "2026-09-07T09:20:29.751Z",
+  "datasetId": "ds_7f1bc4dc92fc4b51",
+  "documentRevisions": {
+    "cache-operations.md": "5905d1303850008220edf8d87e9e06f9fca857a6e3f7a7ac1f6d8aad8c87a9b1"
+  },
+  "extractorVersion": "0.4.0",
+  "model": "gpt-5.6-sol",
+  "reasoningEffort": "medium",
+  "schemaVersion": 6,
+  "timeoutRetries": 1,
+  "timeoutSeconds": 600
+}

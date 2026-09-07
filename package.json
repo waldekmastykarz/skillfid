@@ -1,0 +1,39 @@
+{
+  "name": "skillfid",
+  "version": "0.1.0",
+  "description": "Evaluate how faithfully agent skills apply their source documentation",
+  "keywords": [
+    "agent-skills",
+    "copilot",
+    "evaluation",
+    "grounding"
+  ],
+  "homepage": "https://github.com/waldekmastykarz/skillfid#readme",
+  "bugs": "https://github.com/waldekmastykarz/skillfid/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/waldekmastykarz/skillfid.git"
+  },
+  "license": "MIT",
+  "author": "Waldek Mastykarz <waldek@mastykarz.nl>",
+  "type": "module",
+  "files": [
+    "src/",
+    "templates/evaluation-report.html"
+  ],
+  "bin": {
+    "skillfid": "./src/cli.js"
+  },
+  "scripts": {
+    "calibration:extract": "node scripts/extract-ferryline.js",
+    "calibration:compare": "node scripts/compare-questions.js",
+    "test": "node --test",
+    "start": "node src/cli.js"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@github/copilot-sdk": "^1.0.11"
+  }
+}

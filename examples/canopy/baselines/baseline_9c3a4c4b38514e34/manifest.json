@@ -1,0 +1,12 @@
+{
+  "baselineId": "baseline_9c3a4c4b38514e34",
+  "compatibilityKey": "47c6f73171302e2eac954991f6c146fe55e882174216d31eea7e4c3329e8b4a9",
+  "copilotCliVersion": "GitHub Copilot CLI 1.0.80.",
+  "createdAt": "2026-09-07T09:24:50.604Z",
+  "datasetId": "ds_7f1bc4dc92fc4b51",
+  "evaluatorVersion": "0.8.0",
+  "judgeModel": "gpt-5.6-sol",
+  "model": "gpt-5.6-sol",
+  "reasoningEffort": "medium",
+  "trialsPerQuestion": 3
+}

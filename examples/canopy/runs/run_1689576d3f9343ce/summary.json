@@ -1,0 +1,11 @@
+{
+  "conditionScores": {
+    "closedBook": 0,
+    "skill": 0.8391000000000001
+  },
+  "datasetCeiling": 1,
+  "datasetId": "ds_7f1bc4dc92fc4b51",
+  "diagnosedFailures": 18,
+  "questions": 25,
+  "skillUplift": 0.8391000000000001
+}

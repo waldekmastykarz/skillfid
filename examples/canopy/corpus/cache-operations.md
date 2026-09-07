@@ -1,0 +1,39 @@
+# Canopy build cache operations guide
+
+Canopy is a synthetic distributed cache for compiled build artifacts. It is designed for workloads in which every artifact can be rebuilt from source, but rebuilding is expensive enough that cache availability and storage efficiency matter. The service treats cached data as disposable: source control and the build system remain the systems of record.
+
+## Keys and admission
+
+Clients derive an artifact key by hashing the source inputs, compiler identity, target platform, and an allowlist of environment variables with SHA-256. Timestamps and absolute workspace paths are normalized before hashing. A build rule marked `volatile` bypasses Canopy because its output is not expected to be deterministic. Failed builds are never cached.
+
+Admission limits are enforced by the client before any bytes are sent. Artifacts larger than 713 MiB are rejected, so an artifact of exactly 713 MiB is allowed. Each tenant may have at most 64 uploads in progress. When that limit is reached, the build continues without caching instead of waiting for an upload slot. These rules prevent large debug bundles and reconnecting worker fleets from overwhelming the service.
+
+## Placement and writes
+
+The first 12 bits of the artifact key select a shard. Within that shard, Canopy places four replicas across two availability zones, with two replicas in each zone. A client sends a new artifact to the least-loaded replica, called the seed. The seed verifies the key, streams copies to the other zone, and acknowledges the write after one replica in each zone has stored the complete artifact. The remaining two replicas are populated in the background.
+
+This two-zone acknowledgement rule allows a completed write to survive the loss of either zone. If the seed fails before acknowledgement, the client retries against another replica. If it fails after acknowledgement, background repair restores the missing copies. Upload retries use the same artifact key and are idempotent; a replica that already has the key returns success without replacing its bytes.
+
+## Reads and membership changes
+
+Reads first contact the lowest-latency replica in the current placement map, then race the remaining current replicas after 40 milliseconds. The first valid response wins. A checksum failure does not count as a response and immediately starts the other requests.
+
+Controllers publish a numbered placement map whenever storage nodes join or leave. Existing artifacts are not moved immediately. On a miss, readers also consult owners from the immediately preceding map, but never older maps. Finding an artifact under the previous map schedules a background copy to its current owners. A node may leave service only after it has been read-only for 24 hours and reports no artifacts that exist solely under the previous map.
+
+## Storage classes and retention
+
+New artifacts enter the nursery, an NVMe-backed storage class. An artifact remains there for 90 minutes. It moves to the orchard object-storage class only if it was requested by at least three distinct builds during that period. Repeated requests from parallel steps in the same build count once. Nursery artifacts that do not qualify expire after 90 minutes rather than moving to the orchard.
+
+Orchard retention is based on value density, not recency. Canopy calculates value density as avoided build seconds multiplied by requests in the previous seven days, divided by compressed artifact size in MiB. Cleanup begins when orchard usage exceeds 82 percent and removes the lowest-density artifacts until usage reaches 68 percent. Artifacts requested during cleanup are protected for the remainder of that cleanup pass, but they may be considered again during the next pass.
+
+## Integrity and deletion
+
+Every artifact stores a BLAKE3 digest in addition to its SHA-256 key. A scrubber checks two percent of each node's resident bytes per hour. When one replica fails validation, Canopy copies a valid replica over it. If no valid replica remains, Canopy deletes the key and lets the next client rebuild it. Repair traffic is limited to eight percent of a node's outbound bandwidth so that repair cannot crowd out normal reads.
+
+User deletion creates a tombstone rather than immediately erasing every replica. Tombstones are retained for 36 hours and take precedence over artifacts found through an older placement map. This prevents membership fallback from resurrecting deleted data. Physical bytes are removed asynchronously during the retention window.
+
+## Operating signals
+
+Operators evaluate Canopy with two primary signals. Avoided build minutes per TiB measures whether the cache is retaining expensive work; the service objective is at least 450 avoided minutes per TiB each day. Bypass rate measures the share of otherwise cacheable artifacts skipped because of admission or concurrency limits; it should remain below three percent over a 30-minute window. Hit rate is useful for investigation, but it is not an objective because a cache full of cheap artifacts can have a high hit rate while saving little build time.
+
+When avoided build minutes per TiB falls while hit rate remains stable, operators first look for large artifacts with short rebuild times. When bypass rate rises, they separate oversize rejections from tenant upload saturation before changing capacity. Raising the 64-upload limit is not the default response because it can turn a reconnect event into a storage traffic spike.

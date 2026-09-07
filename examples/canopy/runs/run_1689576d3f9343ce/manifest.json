@@ -1,0 +1,17 @@
+{
+  "baselineId": "baseline_9c3a4c4b38514e34",
+  "copilotCliVersion": "GitHub Copilot CLI 1.0.80.",
+  "createdAt": "2026-09-07T09:29:03.719Z",
+  "datasetId": "ds_7f1bc4dc92fc4b51",
+  "diagnoseFailures": true,
+  "evaluatorVersion": "0.8.0",
+  "judgeModel": "gpt-5.6-sol",
+  "model": "gpt-5.6-sol",
+  "reasoningEffort": "medium",
+  "runId": "run_1689576d3f9343ce",
+  "skillHash": "b70093db87049fe60d53a534e7f4a21dd84934139bf1c91c98074cd7387c8d47",
+  "skillInvocation": "explicit",
+  "timeoutRetries": 1,
+  "timeoutSeconds": 600,
+  "trialsPerQuestion": 3
+}
