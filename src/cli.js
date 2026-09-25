@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 import path from 'node:path';
+import { realpathSync } from 'node:fs';
 import { access } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import { buildDataset, loadDataset, recalibrateDataset } from './dataset.js';
@@ -318,7 +320,17 @@ function shellArgument(value) {
   return /^[A-Za-z0-9_./:@=+-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+function isEntryPoint() {
+  if (!process.argv[1]) return false;
+  try {
+    // Resolve symlinks so the check works when invoked via npm link or a global install.
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
   let interrupted = false;
   process.once('SIGINT', () => { interrupted = true; activeProgressReporter?.close(); process.stderr.write(interruptionMessage(process.argv.slice(2))); process.exitCode = 130; });
   main().catch((error) => {
