@@ -11,8 +11,9 @@ import { evaluateBaseline, evaluateDataset } from './evaluation.js';
 import { OperationJournal } from './journal.js';
 import { createProgressReporter } from './progress.js';
 import { generateEvaluationReport } from './report.js';
+import packageJson from '../package.json' with { type: 'json' };
 
-const VERSION = '0.6.0';
+const VERSION = packageJson.version;
 let activeProgressReporter;
 
 const HELP = `skillfid: evaluate how faithfully agent skills apply their source documentation

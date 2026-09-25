@@ -5,6 +5,7 @@ import { test } from 'node:test';
 
 import { interruptionMessage, resumeCommand } from '../src/cli.js';
 import { operationId, OperationJournal } from '../src/journal.js';
+import packageJson from '../package.json' with { type: 'json' };
 
 test('help is self-contained for agent callers', () => {
   const result = spawnSync(process.execPath, ['src/cli.js', '--help'], { encoding: 'utf8' });
@@ -110,7 +111,7 @@ test('report requires run and dataset inputs', () => {
 test('version prints only the version', () => {
   const result = spawnSync(process.execPath, ['src/cli.js', '--version'], { encoding: 'utf8' });
   assert.equal(result.status, 0);
-  assert.equal(result.stdout, '0.6.0\n');
+  assert.equal(result.stdout, `${packageJson.version}\n`);
 });
 
 test('invalid skill invocation mode lists valid values', () => {
