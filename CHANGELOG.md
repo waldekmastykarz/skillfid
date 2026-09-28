@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/waldekmastykarz/knowledge-eval/compare/v0.1.1...v0.1.2) (2026-09-28)
+
+### Bug fixes
+
+- Improved dataset build progress reporting with steadier completion updates and more accurate time estimates
+- Isolated temporary workspaces so concurrent dataset builds no longer interfere with each other
+
 ## 0.1.1 (2026-09-25)
 
 ### Features
