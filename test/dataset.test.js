@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { afterEach, test } from 'node:test';
 import path from 'node:path';
 
-import { buildDataset, loadDataset, recalibrateDataset } from '../src/dataset.js';
+import { buildDataset, estimateDatasetCalls, loadDataset, recalibrateDataset } from '../src/dataset.js';
 
 const root = '.work/js-tests/dataset';
 afterEach(async () => rm(root, { recursive: true, force: true }));
@@ -232,4 +232,79 @@ test('recalibrates published questions without rerunning extraction', async () =
     /consensus=unstable; votes=3\/5/,
   );
   assert.equal(unstableJudgeCalls, 5);
+});
+test('a failing build does not delete workspaces of a concurrent build sharing the work directory', async () => {
+  const corpus = path.join(root, 'corpus');
+  await mkdir(corpus, { recursive: true });
+  await writeFile(path.join(corpus, 'policy.md'), '# Limit\n\nThe upload limit is two gigabytes.\n');
+  const workRoot = path.join(root, 'shared-work');
+  let releaseSurvivor;
+  const failedBuildFinished = new Promise((resolve) => { releaseSurvivor = resolve; });
+  const failing = { async run() { throw new Error('interrupted'); }, async version() { return 'test'; } };
+  const survivor = {
+    async run(workspace) {
+      await failedBuildFinished;
+      await access(workspace);
+      throw new Error('survivor reached the model');
+    },
+    async version() { return 'test'; },
+  };
+  const survivorBuild = buildDataset({ corpusPath: corpus, outputRoot: path.join(root, 'datasets'), workRoot, runner: survivor, options: { resume: false } });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await assert.rejects(buildDataset({ corpusPath: corpus, outputRoot: path.join(root, 'datasets'), workRoot, runner: failing, options: { resume: false } }), /interrupted/);
+  releaseSurvivor();
+  await assert.rejects(survivorBuild, /survivor reached the model/);
+});
+
+test('estimates remaining Copilot calls from inventoried and completed sections', () => {
+  const sections = new Map([
+    ['a', { chars: 1000, calls: 0, items: undefined, completed: false }],
+    ['b', { chars: 1000, calls: 0, items: undefined, completed: false }],
+  ]);
+  assert.equal(estimateDatasetCalls({ concurrency: 2, sections }).total, undefined);
+  Object.assign(sections.get('a'), { calls: 1, items: 10 });
+  assert.equal(estimateDatasetCalls({ concurrency: 2, sections }).total, undefined, 'waits for a round of calls');
+  sections.get('b').calls = 1;
+  // Prior of one call per item: each section predicts 3 + 10 = 13 calls, with b's size extrapolated from a.
+  assert.deepEqual(estimateDatasetCalls({ concurrency: 2, sections }), { done: 2, total: 26 });
+  sections.get('a').questions = 5;
+  // Generated questions refine the rate before any section finishes: a predicts 3 + 5 × 4 = 23 calls, and b uses 2 calls per item.
+  assert.deepEqual(estimateDatasetCalls({ concurrency: 2, sections }), { done: 2, total: 46 });
+  Object.assign(sections.get('a'), { calls: 23, completed: true });
+  // a learned 2 calls per item, so b predicts 3 + 20 = 23 calls.
+  assert.deepEqual(estimateDatasetCalls({ concurrency: 2, sections }), { done: 24, total: 46 });
+});
+
+test('finishes admitted sections before starting queued ones', async () => {
+  const corpus = path.join(root, 'corpus');
+  await mkdir(corpus, { recursive: true });
+  await writeFile(path.join(corpus, 'alpha.md'), '# Alpha\n\nAlpha limit is one.\n');
+  await writeFile(path.join(corpus, 'beta.md'), '# Beta\n\nBeta limit is two.\n');
+  const order = [];
+  const runner = {
+    async run(_workspace, prompt) {
+      const name = prompt.includes('Alpha limit') || prompt.includes('alpha') ? 'alpha' : 'beta';
+      order.push(name);
+      await new Promise((resolve) => setImmediate(resolve));
+      if (prompt.includes('Inventory every independently testable')) {
+        const existing = JSON.parse(prompt.split('EXISTING ITEMS:\n')[1].split('\nSOURCE SECTION:')[0]);
+        if (existing.length) return { answer: JSON.stringify({ classification: 'non_informational', reason: 'Complete.', items: [] }) };
+        const title = name === 'alpha' ? 'Alpha' : 'Beta';
+        const value = name === 'alpha' ? 'one' : 'two';
+        return { answer: JSON.stringify({ classification: 'informational', reason: 'A fact.', items: [{ kind: 'fact', statement: `${title} limit is ${value}.`, importance: 'high', importanceReason: 'Limit.', quote: `${title} limit is ${value}.` }] }) };
+      }
+      if (prompt.includes('Generate focused')) {
+        const [item] = JSON.parse(prompt.split('KNOWLEDGE INVENTORY:\n')[1]);
+        return { answer: JSON.stringify({ questions: [{ question: `What is the ${name} limit?`, type: 'fact', difficulty: 'easy', rubric: [{ criterion: 'States the limit.', weight: 1, knowledgeItemIds: [item.knowledgeId] }] }] }) };
+      }
+      if (prompt.includes('Use only this complete source')) return { answer: `${name} answer` };
+      if (prompt.includes('Calibrate this question')) return { answer: calibration() };
+      throw new Error('Unexpected prompt');
+    },
+    async version() { return 'test'; },
+  };
+  await buildDataset({ corpusPath: corpus, outputRoot: path.join(root, 'datasets'), workRoot: path.join(root, 'work'), runner, options: { concurrency: 1, resume: false } });
+  const firstBeta = order.indexOf('beta');
+  assert.ok(firstBeta > 0);
+  assert.ok(order.slice(firstBeta).every((name) => name === 'beta'), `sections interleaved: ${order.join(',')}`);
 });

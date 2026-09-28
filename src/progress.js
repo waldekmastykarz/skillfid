@@ -3,6 +3,8 @@ import { performance } from 'node:perf_hooks';
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const IMPORTANT_PATTERN = /(?:operation\s|jobs:|retrying|dataset ready:|evaluation complete:|dataset verification complete:|failed\b|error\b|interrupted)/i;
 const IMPORTANT_TYPES = new Set(['checkpoint', 'complete', 'error', 'operation', 'retry']);
+const RATE_WINDOW_SECONDS = 300;
+const MIN_RATE_SAMPLES = 8;
 
 export function createProgressReporter({ mode = 'auto', intervalSeconds = 30, stream = process.stderr, startedAt = performance.now(), clock = () => performance.now() } = {}) {
   const resolvedMode = mode === 'auto' ? (stream.isTTY ? 'human' : 'agent') : mode;
@@ -106,11 +108,13 @@ class HumanProgressReporter extends BaseProgressReporter {
   recordProgress(progress) {
     if (!Number.isFinite(progress.done) || !Number.isFinite(progress.total)) return;
     const elapsed = this.elapsedSeconds();
-    const estimateDone = progress.etaDone ?? progress.done;
+    const estimateDone = progress.eta?.done ?? progress.etaDone ?? progress.done;
     const last = this.estimate.samples.at(-1);
     if (!last || estimateDone > last.done) {
       this.estimate.samples.push({ done: estimateDone, elapsed });
-      this.estimate.samples = this.estimate.samples.slice(-8);
+      // Keep a few minutes of history so bursts of concurrent completions do not swing the rate.
+      const recent = this.estimate.samples.filter((sample) => elapsed - sample.elapsed <= RATE_WINDOW_SECONDS);
+      this.estimate.samples = recent.length >= MIN_RATE_SAMPLES ? recent : this.estimate.samples.slice(-MIN_RATE_SAMPLES);
     }
   }
 
@@ -119,11 +123,14 @@ class HumanProgressReporter extends BaseProgressReporter {
     if (!progress || progress.done >= progress.total || progress.total <= 0) return undefined;
     const samples = this.estimate.samples;
     if (samples.length < 2 || elapsed < 5) return null;
+    // An explicit ETA unit lets callers estimate in steadier work than the displayed measure.
+    if (progress.eta && !Number.isFinite(progress.eta.total)) return null;
     const first = samples[0];
     const last = samples.at(-1);
     const rate = (last.done - first.done) / (last.elapsed - first.elapsed);
     if (rate <= 0) return null;
-    const remainingAtLastSample = (progress.total - progress.done) / rate;
+    const remainingWork = progress.eta ? progress.eta.total - progress.eta.done : progress.total - progress.done;
+    const remainingAtLastSample = remainingWork / rate;
     const remaining = remainingAtLastSample - (elapsed - last.elapsed);
     return remaining > 0 ? remaining : Number.NaN;
   }

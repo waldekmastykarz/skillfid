@@ -97,6 +97,21 @@ test('human progress counts ETA down between completion updates', () => {
   assert.match(output, /15s elapsed · about 35s remaining/);
 });
 
+test('human progress estimates time in explicit ETA units', () => {
+  let output = '';
+  let now = 0;
+  const reporter = createProgressReporter({ mode: 'human', stream: { write: (value) => { output += value; } }, startedAt: 0, clock: () => now });
+  reporter.report({ type: 'update', current: 'Working', progress: { done: 0, total: 0, eta: { done: 0, total: undefined }, label: 'knowledge items covered' } });
+  now = 10_000;
+  reporter.report({ type: 'update', current: 'Working', progress: { done: 0, total: 50, eta: { done: 5, total: undefined }, label: 'knowledge items covered' } });
+  assert.match(output, /estimating remaining time/);
+  now = 20_000;
+  reporter.report({ type: 'update', current: 'Working', progress: { done: 0, total: 50, eta: { done: 10, total: 40 }, label: 'knowledge items covered' } });
+  reporter.close();
+  assert.match(output, /0\/50.*knowledge items covered/);
+  assert.match(output, /20s elapsed · about 1m 00s remaining/);
+});
+
 test('human progress keeps incomplete work below 100% and expires stale ETA', () => {
   let output = '';
   let now = 0;

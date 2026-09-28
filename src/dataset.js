@@ -44,8 +44,9 @@ export async function recalibrateDataset({ datasetPath, outputRoot = 'datasets',
   ]);
   const generatedRunner = !runner;
   const generatedJudge = !runner && !judgeRunner;
-  const baseRunner = runner ?? new CopilotSdkRunner({ model: settings.model, reasoningEffort: settings.reasoningEffort, timeoutSeconds: settings.timeoutSeconds, maxTimeoutRetries: settings.timeoutRetries, isolatedHome: path.join(workRoot, 'home', 'subject'), progress });
-  const baseJudge = judgeRunner ?? runner ?? new CopilotSdkRunner({ model: settings.judgeModel, reasoningEffort: settings.reasoningEffort, timeoutSeconds: settings.timeoutSeconds, maxTimeoutRetries: settings.timeoutRetries, isolatedHome: path.join(workRoot, 'home', 'judge'), progress });
+  const runWork = processWorkRoot(workRoot, 'recalibration');
+  const baseRunner = runner ?? new CopilotSdkRunner({ model: settings.model, reasoningEffort: settings.reasoningEffort, timeoutSeconds: settings.timeoutSeconds, maxTimeoutRetries: settings.timeoutRetries, isolatedHome: path.join(runWork, 'home', 'subject'), progress });
+  const baseJudge = judgeRunner ?? runner ?? new CopilotSdkRunner({ model: settings.judgeModel, reasoningEffort: settings.reasoningEffort, timeoutSeconds: settings.timeoutSeconds, maxTimeoutRetries: settings.timeoutRetries, isolatedHome: path.join(runWork, 'home', 'judge'), progress });
   const copilotVersion = await baseRunner.version();
   progress?.({ type: 'update', workflow: 'recalibration', current: `Running oracle and judge · Copilot CLI ${dataset.manifest.copilotCliVersion} → ${copilotVersion}`, progress: { done: 0, total: dataset.questions.length, label: 'existing questions' } });
   const operationInputs = { sourceDatasetId: dataset.datasetId, pipelineVersion: RECALIBRATION_PIPELINE_VERSION, oraclePromptVersion: ORACLE_PROMPT_VERSION, judgeConsensusPolicyVersion: JUDGE_CONSENSUS_POLICY_VERSION, copilotVersion, model: settings.model, judgeModel: settings.judgeModel, reasoningEffort: settings.reasoningEffort, maxAttempts: settings.maxAttempts };
@@ -74,7 +75,7 @@ export async function recalibrateDataset({ datasetPath, outputRoot = 'datasets',
       const claimedJob = journal.claimJob(job.jobId, workerId);
       if (!claimedJob) throw new DatasetBuildError(`Could not claim calibration job ${question.testId}`);
       try {
-        const workspace = path.join(workRoot, 'questions', question.testId);
+        const workspace = path.join(runWork, 'questions', question.testId);
         await mkdir(workspace, { recursive: true });
         const calibration = await recalibrateQuestion({ runner: baseRunner, judgeRunner: baseJudge, workspace, question, sources, maxAttempts: settings.maxAttempts, generationAttempt: previousCalibration.get(question.testId)?.generationAttempt ?? 1, oracleAttempt: claimedJob.attempts });
         const output = { ...calibration, runtime: { copilotCliVersion: copilotVersion, model: settings.model, judgeModel: settings.judgeModel, reasoningEffort: settings.reasoningEffort, oraclePromptVersion: ORACLE_PROMPT_VERSION } };
@@ -107,9 +108,13 @@ export async function recalibrateDataset({ datasetPath, outputRoot = 'datasets',
     journal.close();
     if (generatedRunner) await baseRunner.close();
     if (generatedJudge) await baseJudge.close();
-    await rm(path.join(workRoot, 'questions'), { recursive: true, force: true });
-    if (generatedRunner) await rm(path.join(workRoot, 'home'), { recursive: true, force: true });
+    await rm(runWork, { recursive: true, force: true });
   }
+}
+
+// Scratch space is per process so concurrent runs sharing a work directory cannot delete each other's files.
+function processWorkRoot(workRoot, kind) {
+  return path.resolve(workRoot, `${kind}_${randomUUID().replaceAll('-', '').slice(0, 16)}`);
 }
 
 export async function buildDataset({ corpusPath, outputRoot = 'datasets', workRoot = '.work/dataset', options = {}, runner, judgeRunner, progress }) {
@@ -124,14 +129,17 @@ export async function buildDataset({ corpusPath, outputRoot = 'datasets', workRo
   const documentById = new Map(documents.map((document) => [document.documentId, document]));
   const sections = documents.flatMap((document) => splitDocument(document, settings.maxSectionChars));
   if (!sections.length) throw new DatasetBuildError('Corpus has no non-empty sections');
-  const dashboard = { documents: documents.length, sections: sections.length, completed: 0, running: 0, resumed: 0, reusedCovered: 0, sectionItems: new Map(), sectionCovered: new Map(), sectionGenerated: new Map(), sectionCalibrated: new Map() };
+  const dashboard = { documents: documents.length, sections: sections.length, completed: 0, running: 0, resumed: 0, sectionItems: new Map(), sectionCovered: new Map(), sectionGenerated: new Map(), sectionCalibrated: new Map(), estimate: { concurrency: settings.concurrency, sections: new Map() } };
   progress?.({ type: 'update', workflow: 'dataset', title: 'Building dataset', current: `Preparing ${formatCount(sections.length, 'section')}`, progress: datasetProgress(dashboard) });
   const generatedRunner = !runner;
   const generatedJudge = !runner && !judgeRunner;
   const limiter = new AsyncLimiter(settings.concurrency);
-  const baseRunner = runner ?? new CopilotSdkRunner({ model: settings.model, reasoningEffort: settings.reasoningEffort, timeoutSeconds: settings.timeoutSeconds, maxTimeoutRetries: settings.timeoutRetries, isolatedHome: path.join(workRoot, 'home', 'subject'), progress });
+  // Admitting only as many sections as call slots finishes sections steadily instead of interleaving every section's stages.
+  const sectionLimiter = new AsyncLimiter(settings.concurrency);
+  const runWork = processWorkRoot(workRoot, 'build');
+  const baseRunner = runner ?? new CopilotSdkRunner({ model: settings.model, reasoningEffort: settings.reasoningEffort, timeoutSeconds: settings.timeoutSeconds, maxTimeoutRetries: settings.timeoutRetries, isolatedHome: path.join(runWork, 'home', 'subject'), progress });
   const activeRunner = limitRunner(baseRunner, limiter);
-  const workspace = path.join(workRoot, 'generation');
+  const workspace = path.join(runWork, 'generation');
   await mkdir(workspace, { recursive: true });
   const allItems = [];
   const allEvidence = [];
@@ -139,7 +147,7 @@ export async function buildDataset({ corpusPath, outputRoot = 'datasets', workRo
   const verifications = {};
   const calibrations = {};
   const audits = [];
-  const baseJudge = judgeRunner ?? runner ?? new CopilotSdkRunner({ model: settings.judgeModel, reasoningEffort: settings.reasoningEffort, timeoutSeconds: settings.timeoutSeconds, maxTimeoutRetries: settings.timeoutRetries, isolatedHome: path.join(workRoot, 'home', 'judge'), progress });
+  const baseJudge = judgeRunner ?? runner ?? new CopilotSdkRunner({ model: settings.judgeModel, reasoningEffort: settings.reasoningEffort, timeoutSeconds: settings.timeoutSeconds, maxTimeoutRetries: settings.timeoutRetries, isolatedHome: path.join(runWork, 'home', 'judge'), progress });
   const activeJudge = baseJudge === baseRunner ? activeRunner : limitRunner(baseJudge, limiter);
   const copilotVersion = await activeRunner.version();
   const operationInputs = { corpusRevision: corpusRevision(documents), pipelineVersion: DATASET_PIPELINE_VERSION, judgeConsensusPolicyVersion: JUDGE_CONSENSUS_POLICY_VERSION, copilotVersion, model: settings.model, judgeModel: settings.judgeModel, reasoningEffort: settings.reasoningEffort, maxAttempts: settings.maxAttempts, cleanResidualPasses: settings.cleanResidualPasses, maxResidualPasses: settings.maxResidualPasses, maxSectionChars: settings.maxSectionChars };
@@ -154,33 +162,41 @@ export async function buildDataset({ corpusPath, outputRoot = 'datasets', workRo
       const document = documentById.get(section.documentId);
       const job = journal.ensureJob({ operationId: activeOperationId, stage: 'section', entityId: section.sectionId, inputs: { section, documentRevision: document.revision, pipelineVersion: DATASET_PIPELINE_VERSION } });
       if (job.status === 'completed') {
-        dashboard.completed += 1; dashboard.resumed += 1; dashboard.reusedCovered += job.output.items.length;
+        dashboard.completed += 1; dashboard.resumed += 1;
         updateSectionResults(dashboard, section.sectionId, { items: job.output.items.length, covered: job.output.items.length, generated: job.output.questions.length, calibrated: job.output.questions.length });
         progress?.({ type: 'update', workflow: 'dataset', current: `Reusing section ${sectionIndex + 1} of ${sections.length}`, progress: datasetProgress(dashboard) });
         return job.output;
       }
-      const workerId = randomUUID();
-      if (!journal.claimJob(job.jobId, workerId)) throw new DatasetBuildError(`Could not claim section job ${section.sectionId}`);
-      const lease = setInterval(() => journal.renewLease(job.jobId, workerId), 5 * 60 * 1000);
-      lease.unref();
-      dashboard.running += 1;
-      progress?.({ type: 'update', workflow: 'dataset', current: `Inventorying section ${sectionIndex + 1} of ${sections.length}`, progress: datasetProgress(dashboard) });
-      try {
-        const output = await processSection({ section, sectionIndex, sectionCount: sections.length, document, runner: activeRunner, judgeRunner: activeJudge, workspace: path.join(workspace, section.sectionId), settings, progress, onResults: (results) => {
-          updateSectionResults(dashboard, section.sectionId, results);
-          progress?.({ type: 'update', workflow: 'dataset', progress: datasetProgress(dashboard) });
-        } });
-        journal.completeJob(job.jobId, workerId, output);
-        dashboard.running -= 1; dashboard.completed += 1;
-        progress?.({ type: 'update', workflow: 'dataset', current: `Finalized section ${sectionIndex + 1} of ${sections.length}`, progress: datasetProgress(dashboard) });
-        return output;
-      } catch (error) {
-        dashboard.running -= 1;
-        journal.failJob(job.jobId, workerId, error);
-        throw error;
-      } finally {
-        clearInterval(lease);
-      }
+      dashboard.estimate.sections.set(section.sectionId, { chars: section.content.length, calls: 0, items: undefined, questions: 0, completed: false });
+      return sectionLimiter.run(async () => {
+        const workerId = randomUUID();
+        if (!journal.claimJob(job.jobId, workerId)) throw new DatasetBuildError(`Could not claim section job ${section.sectionId}`);
+        const lease = setInterval(() => journal.renewLease(job.jobId, workerId), 5 * 60 * 1000);
+        lease.unref();
+        dashboard.running += 1;
+        progress?.({ type: 'update', workflow: 'dataset', current: `Inventorying section ${sectionIndex + 1} of ${sections.length}`, progress: datasetProgress(dashboard) });
+        try {
+          const onCall = () => {
+            dashboard.estimate.sections.get(section.sectionId).calls += 1;
+            progress?.({ type: 'update', workflow: 'dataset', progress: datasetProgress(dashboard) });
+          };
+          const output = await processSection({ section, sectionIndex, sectionCount: sections.length, document, runner: countCalls(activeRunner, onCall), judgeRunner: countCalls(activeJudge, onCall), workspace: path.join(workspace, section.sectionId), settings, progress, onResults: (results) => {
+            updateSectionResults(dashboard, section.sectionId, results);
+            progress?.({ type: 'update', workflow: 'dataset', progress: datasetProgress(dashboard) });
+          } });
+          journal.completeJob(job.jobId, workerId, output);
+          Object.assign(dashboard.estimate.sections.get(section.sectionId), { items: output.items.length, completed: true });
+          dashboard.running -= 1; dashboard.completed += 1;
+          progress?.({ type: 'update', workflow: 'dataset', current: `Finalized section ${sectionIndex + 1} of ${sections.length}`, progress: datasetProgress(dashboard) });
+          return output;
+        } catch (error) {
+          dashboard.running -= 1;
+          journal.failJob(job.jobId, workerId, error);
+          throw error;
+        } finally {
+          clearInterval(lease);
+        }
+      });
     });
     const settled = await Promise.allSettled(sectionTasks);
     const failure = settled.find((result) => result.status === 'rejected');
@@ -206,8 +222,7 @@ export async function buildDataset({ corpusPath, outputRoot = 'datasets', workRo
     journal.close();
     if (generatedRunner) await baseRunner.close();
     if (generatedJudge) await baseJudge.close();
-    await rm(workspace, { recursive: true, force: true });
-    if (generatedRunner) await rm(path.join(workRoot, 'home'), { recursive: true, force: true });
+    await rm(runWork, { recursive: true, force: true });
   }
 }
 
@@ -381,7 +396,52 @@ function assertCompleteCoverage(items, questions) {
 function datasetProgress(state) {
   const items = [...state.sectionItems.values()].reduce((sum, count) => sum + count, 0);
   const covered = [...state.sectionCovered.values()].reduce((sum, count) => sum + count, 0);
-  return { done: covered, total: items, etaDone: Math.max(0, covered - state.reusedCovered), label: 'knowledge items covered' };
+  return { done: covered, total: items, eta: estimateDatasetCalls(state.estimate), label: 'knowledge items covered' };
+}
+
+const DEFAULT_CALLS_PER_ITEM = 1;
+const CALLS_PER_QUESTION = 1 + INITIAL_JUDGMENTS;
+
+// Estimates remaining work in Copilot calls, which complete steadily, rather than in covered items, which only move when a whole section finishes.
+export function estimateDatasetCalls({ concurrency, sections }) {
+  const records = [...sections.values()];
+  const done = records.reduce((sum, record) => sum + record.calls, 0);
+  const inventoried = records.filter((record) => record.items !== undefined);
+  const inventoriedChars = inventoried.reduce((sum, record) => sum + record.chars, 0);
+  if (!records.length || !inventoried.length || !inventoriedChars || done < Math.min(concurrency, records.length)) return { done, total: undefined };
+  const itemsPerChar = inventoried.reduce((sum, record) => sum + record.items, 0) / inventoriedChars;
+  const callsPerItem = learnedCallsPerItem(records);
+  const remaining = records.reduce((sum, record) => {
+    if (record.completed) return sum;
+    const items = record.items ?? record.chars * itemsPerChar;
+    const predicted = fixedSectionCalls(items) + (record.questions ? CALLS_PER_QUESTION * record.questions : callsPerItem * items);
+    return sum + Math.max(predicted - record.calls, record.calls ? 1 : predicted);
+  }, 0);
+  return { done, total: done + Math.round(remaining) };
+}
+
+function learnedCallsPerItem(records) {
+  const completed = records.filter((record) => record.completed && record.items > 0);
+  const completedItems = completed.reduce((sum, record) => sum + record.items, 0);
+  if (completedItems) return Math.max(0, completed.reduce((sum, record) => sum + record.calls - fixedSectionCalls(record.items), 0)) / completedItems;
+  const generated = records.filter((record) => record.questions && record.items > 0);
+  const generatedItems = generated.reduce((sum, record) => sum + record.items, 0);
+  if (generatedItems) return CALLS_PER_QUESTION * generated.reduce((sum, record) => sum + record.questions, 0) / generatedItems;
+  return DEFAULT_CALLS_PER_ITEM;
+}
+
+function fixedSectionCalls(items) {
+  // Initial inventory plus one clean residual pass; informational sections also need a generation call.
+  return items > 0 ? 3 : 2;
+}
+
+function countCalls(runner, onCall) {
+  return {
+    async run(...args) {
+      try { return await runner.run(...args); }
+      finally { onCall(); }
+    },
+  };
 }
 
 function sectionProgress(progress, phase, sectionIndex, sectionCount) {
@@ -389,7 +449,15 @@ function sectionProgress(progress, phase, sectionIndex, sectionCount) {
 }
 
 function updateSectionResults(state, sectionId, { items, covered, generated, calibrated }) {
-  if (items !== undefined) state.sectionItems.set(sectionId, items);
+  if (items !== undefined) {
+    state.sectionItems.set(sectionId, items);
+    const estimate = state.estimate?.sections.get(sectionId);
+    if (estimate) estimate.items = items;
+  }
+  if (generated) {
+    const estimate = state.estimate?.sections.get(sectionId);
+    if (estimate) estimate.questions = generated;
+  }
   if (covered !== undefined) state.sectionCovered.set(sectionId, covered);
   if (generated !== undefined) state.sectionGenerated.set(sectionId, generated);
   if (calibrated !== undefined) state.sectionCalibrated.set(sectionId, calibrated);
