@@ -4,12 +4,110 @@
 
 ![Canopy skill evaluation report showing an 83.91% skill-assisted score and actionable diagnoses](examples/canopy/assets/evaluation-report.png)
 
-## Explore the Canopy result
+## Requirements
 
-> Canopy, is a synthetic distributed build cache used to demonstrate the complete workflow.
+- Node.js 24 or later
+- GitHub Copilot CLI, authenticated for Copilot access
 
-Inspect the included evaluation and trace its findings to the recorded data without
-making a model call:
+Check them with `node --version` and `copilot --version`. The default model for both
+subject and judge is `gpt-5.6-sol`; override either per command.
+
+## Installation
+
+```sh
+npm install --global skillfid
+```
+
+## Workflow
+
+Run these steps in order. Steps 1-3 prepare reusable inputs; steps 4-5 repeat for
+every revision of your skill.
+
+| Step | Command | Run it | Produces |
+| --- | --- | --- | --- |
+| 1 | `dataset build` | Once per corpus | Immutable dataset of questions, evidence, and verified answers |
+| 2 | `dataset verify` | Optional, after step 1 | Local integrity check of the dataset |
+| 3 | `eval baseline` | Once per dataset and model configuration | Closed-book answers and judgments, without the skill |
+| 4 | `eval run` | Every skill revision | Skill-assisted answers, scores, and diagnoses |
+| 5 | `eval report` | After each run | Self-contained HTML report |
+
+After step 5, read the diagnoses, improve the skill, and repeat steps 4 and 5.
+Steps 1-3 stay unchanged, so every revision is compared against the same dataset and
+baseline.
+
+## Quick start
+
+Commands below use the default output folders (`./datasets`, `./baselines`,
+`./runs`). Each model-backed command prints the path it created; use it in the
+next step.
+
+### 1. Build a dataset
+
+Point `skillfid` at a folder of Markdown files, the ground truth for your skill:
+
+```sh
+skillfid dataset build --corpus ./corpus
+```
+
+Every generated question must have an oracle answer that is judged perfect and
+stable before the dataset is published. The result is `./datasets/<dataset-id>`.
+
+```sh
+DATASET=./datasets/<dataset-id>
+```
+
+### 2. Verify the dataset (optional)
+
+```sh
+skillfid dataset verify --dataset "$DATASET"
+```
+
+### 3. Measure the closed-book baseline
+
+```sh
+skillfid eval baseline --dataset "$DATASET"
+```
+
+This measures how well the agent answers without your skill. It is reused by every
+later run.
+
+### 4. Evaluate your skill
+
+```sh
+skillfid eval run --dataset "$DATASET" --skill ./path/to/skill
+```
+
+The run uses the latest baseline that exactly matches the dataset, models, reasoning
+effort, trial count, evaluator version, and Copilot CLI version; otherwise it fails
+with an actionable message. Set the output folder as `RUN`:
+
+```sh
+RUN=./runs/<run-id>
+```
+
+To invoke the skill as `/skill-name` in every skill prompt instead of relying on
+automatic activation, add `--skill-invocation explicit`. This affects only the
+skill condition.
+
+### 5. Generate the report
+
+```sh
+skillfid eval report --run "$RUN" --dataset "$DATASET" --title "My skill"
+```
+
+The report is written to `$RUN/report.html`. Use `--output <file>` to change that.
+This step is local and makes no Copilot calls.
+
+### 6. Improve and repeat
+
+Open the report, apply the recommended changes to your skill, then rerun steps 4
+and 5. Compare scores across runs.
+
+## Try it with Canopy
+
+Canopy is a synthetic distributed build cache that demonstrates the complete
+workflow. Inspect the included evaluation and trace its findings to the recorded
+data without making a model call:
 
 - [Open the self-contained HTML report](examples/canopy/runs/run_1689576d3f9343ce/report.html)
 - Inspect the run's [summary](examples/canopy/runs/run_1689576d3f9343ce/summary.json), [diagnoses](examples/canopy/runs/run_1689576d3f9343ce/diagnoses.jsonl), and [recorded answers](examples/canopy/runs/run_1689576d3f9343ce/answers.jsonl)
@@ -21,39 +119,22 @@ source-backed improvements, v2 scored **100%** against the same dataset and
 baseline. Both results used `gpt-5.6-sol` as subject and judge with three trials per
 question. Scores are specific to the dataset and evaluation configuration.
 
-## Run the complete Canopy flow
-
-Complete the [requirements](#requirements) and [installation](#installation) first.
-Then build an immutable dataset from the Canopy corpus:
+To run the same workflow yourself, set `DATASET` and `RUN` to the paths printed by
+the commands:
 
 ```sh
 skillfid --progress human dataset build \
 	--corpus ./examples/canopy/corpus \
 	--output-dir ./.work/canopy/datasets \
 	--work-dir ./.work/canopy/dataset-work
-```
 
-Set `DATASET` to the published path printed by the command, then verify it locally:
-
-```sh
 DATASET=./.work/canopy/datasets/<dataset-id>
 
-skillfid dataset verify --dataset "$DATASET"
-```
-
-Create the reusable closed-book baseline:
-
-```sh
 skillfid --progress human eval baseline \
 	--dataset "$DATASET" \
 	--output-dir ./.work/canopy/baselines \
 	--work-dir ./.work/canopy/baseline-work
-```
 
-Evaluate the original skill with explicit invocation. The run reuses the compatible
-baseline automatically:
-
-```sh
 skillfid --progress human eval run \
 	--dataset "$DATASET" \
 	--skill ./examples/canopy/skill \
@@ -61,11 +142,7 @@ skillfid --progress human eval run \
 	--skill-invocation explicit \
 	--output-dir ./.work/canopy/runs \
 	--work-dir ./.work/canopy/eval-work
-```
 
-Set `RUN` to the output path, then generate the report locally:
-
-```sh
 RUN=./.work/canopy/runs/<run-id>
 
 skillfid eval report \
@@ -76,40 +153,17 @@ skillfid eval report \
 
 To evaluate the improved skill, rerun `eval run` with
 `--skill ./examples/canopy/skill-v2`. See the
-[Canopy walkthrough](examples/canopy/README.md) for the checked-in artifacts and
-reproduction paths. If a model-backed command is interrupted, use the resume command
-printed by the CLI.
-
-## Requirements
-
-Before running `skillfid`, make sure that you have:
-
-- Node.js 24 or later
-- GitHub Copilot CLI authenticated for Copilot access
-
-Check them with `node --version` and `copilot --version`. The default model for both
-subject and judge is `gpt-5.6-sol`; you can override either per command. Evaluation
-runs use an isolated repository-local profile and do not expose authentication
-tokens to agent tools.
-
-## Installation
-
-Install `skillfid` from npm:
-
-```sh
-npm install --global skillfid
-```
-
-For a minimal model-backed smoke test, use the one-fact
+[Canopy walkthrough](examples/canopy/README.md) for the checked-in artifacts. For a
+minimal model-backed smoke test, use the one-fact
 [Arbor example](examples/arbor/README.md).
 
-## Command reference
+## Reference
 
-Build an immutable, oracle-calibrated dataset from a Markdown corpus:
+Run `skillfid --help` for the complete command reference, including JSON schemas,
+prerequisites, and exit codes. Add `--json` to any command for machine-readable
+output. Primary output goes to stdout, while progress and errors go to stderr.
 
-```sh
-skillfid dataset build --corpus ./corpus --json
-```
+### Dataset calibration
 
 Every generated question must produce an oracle answer that receives a stable,
 perfect criterion-level judgment before publication. The same answer is judged
@@ -121,14 +175,15 @@ The dataset stores every judgment and its consensus in `calibrations.jsonl`; the
 corpus remains the sole ground truth. Datasets older than schema v6 lack the combined
 structural and integrity proof and must be rebuilt.
 
+### Recalibrate a dataset
+
 After changing the Copilot runtime, model, judge, or harness, recalibrate without
 repeating corpus inventory or question extraction:
 
 ```sh
 skillfid dataset recalibrate \
 	--dataset ./datasets/<dataset-id> \
-	--output-dir ./datasets \
-	--json
+	--output-dir ./datasets
 ```
 
 Recalibration copies documents, knowledge, evidence, questions, verification,
@@ -138,76 +193,23 @@ once and held fixed across all judge repeats. Every question must still receive 
 stable, perfect calibration before publication.
 
 The result is a new immutable dataset whose manifest records `sourceDatasetId`.
-Continue interrupted recalibration with the same command and `--resume`.
+Continue interrupted recalibration with the same command and `--resume`. Rerun
+steps 3-5 against the new dataset.
 
-Verify a dataset locally without rerunning extraction:
+### Evaluation settings
 
-```sh
-skillfid dataset verify --dataset ./datasets/<dataset-id> --json
-```
+- Oracle calibration is a dataset publication gate, not an evaluation condition or
+  model-specific ceiling.
+- Baseline and skill runs inherit model settings from the dataset by default;
+  both commands may select another model configuration.
+- Both commands default to three trials per question. Use `--trials <count>`
+  consistently on both.
+- When storing baselines outside `./baselines`, use matching `--output-dir` on
+  `eval baseline` and `--baseline-dir` on `eval run`.
+- `--skill-invocation auto|explicit` changes only the skill condition. The resolved
+  mode is recorded in the run manifest; the baseline does not change.
 
-Measure the reusable closed-book baseline:
-
-```sh
-skillfid eval baseline \
-	--dataset ./datasets/<dataset-id> \
-	--json
-```
-
-Evaluate a skill using the latest exactly compatible baseline:
-
-```sh
-skillfid eval run \
-	--dataset ./datasets/<dataset-id> \
-	--skill ./path/to/skill \
-	--json
-```
-
-Skill activation is automatic by default. To invoke the discovered project skill as
-`/skill-name` in every skill-condition prompt, use explicit invocation:
-
-```sh
-skillfid eval run \
-	--dataset ./datasets/<dataset-id> \
-	--skill ./path/to/skill \
-	--skill-invocation explicit \
-	--json
-```
-
-`--skill-invocation` accepts `auto` or `explicit`. It changes only the skill
-condition. The resolved mode is recorded in the run manifest; the baseline does not
-change.
-
-Oracle calibration is a dataset publication gate, not an evaluation condition or
-model-specific ceiling. Baseline and skill model settings inherit from the dataset
-by default, but both commands may select another model configuration.
-
-A compatible baseline must match the dataset ID, subject model, judge model,
-reasoning effort, trial count, evaluator version, and Copilot CLI version exactly.
-Evaluation fails with an actionable message when none exists.
-
-Both commands default to three trials per question. Use `--trials <count>`
-consistently to override that default. When storing baselines outside
-`./baselines`, use matching `--output-dir` on `eval baseline` and `--baseline-dir`
-on `eval run`.
-
-Generate a self-contained HTML report:
-
-```sh
-skillfid eval report \
-	--run ./runs/<run-id> \
-	--dataset ./datasets/<dataset-id> \
-	--title "My skill"
-```
-
-The report defaults to `<run>/report.html`. Use `--output <file>` to choose another
-location. Report generation is local and makes no Copilot calls.
-
-## Execution and recovery
-
-Run `skillfid --help` for the complete command reference, including JSON
-schemas, prerequisites, and exit codes. Primary output goes to stdout, while
-progress and errors go to stderr.
+### Execution and recovery
 
 Copilot calls have a 600-second timeout and one fresh-session retry by default.
 Configure them with `--timeout <seconds>` and `--timeout-retries <count>`.
@@ -238,7 +240,7 @@ in-place display on a TTY and bounded agent snapshots otherwise. Human mode show
 current work and elapsed time, followed by an estimate and a compact result. JSON
 progress is emitted as JSON Lines on stderr without changing final stdout.
 
-## Artifacts and scoring
+### Artifacts and scoring
 
 Each baseline stores its closed-book answers and judgments with an exact
 compatibility manifest. Each skill run embeds those baseline records alongside
@@ -255,9 +257,10 @@ uplift is shown in percentage points. Only diagnoses with concrete file targets
 appear as recommended work; the evidence view retains every trial answer and its
 failed-criterion rationale.
 
-## Isolation and safety
+### Isolation and safety
 
-Every question, trial, and condition runs in a fresh non-resumed Copilot SDK session
+Evaluation runs use an isolated repository-local profile and do not expose
+authentication tokens to agent tools. Every question, trial, and condition runs in a fresh non-resumed Copilot SDK session
 with its own filesystem workspace. Subject sessions share one client, and judge
 sessions share another. Conversation and workspace state are not reused.
 
