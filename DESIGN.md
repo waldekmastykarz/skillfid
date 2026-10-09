@@ -60,6 +60,8 @@ All model-backed stages run through persistent Copilot SDK clients backed by Cop
 
 Independent sections, questions, trials, judgments, and diagnostics run concurrently through one shared limiter. The default concurrency is 10 and callers may set any positive value. Dataset builds admit at most that many sections at a time in corpus order, so admitted sections run through inventory, generation, and calibration and finish steadily instead of every section's stages interleaving. Baseline and skill evaluation treat each question and trial as an end-to-end scheduling pipeline: one slot generates an answer and then judges it. A bounded rolling window keeps one question's worth of pipelines ready beyond the active slots, immediately replaces completed pipelines while runnable work remains, and admits each diagnosis as soon as its skill question is judged. No new pipeline enters the window after a detected failure. Answer and judgment outputs remain separate SQLite checkpoints, so recovery can reuse either completed stage. Resume selects the latest matching incomplete operation and reuses completed jobs by semantic input hash, including jobs from an interrupted fresh attempt. Final datasets, baselines, and runs remain immutable JSON/JSONL packages.
 
+Prompts that share a long source document put the static instructions and the document first and the question-specific text last (oracle, calibration judge, evaluation judge), so every call over the same document shares one cacheable prefix. The three independent calibration judgments run in parallel; the two tie-break judgments run only when they disagree.
+
 Every command reports progress through one renderer abstraction. Human mode
 maintains one stable, sparse TTY display with a single job-level measure,
 current action, elapsed time, and an estimated time remaining once measurable
@@ -73,11 +75,62 @@ immediate checkpoints, retries, and failures. JSON mode emits each complete
 structured event on stderr; quiet mode emits none. Auto selects human output for
 a TTY and agent output otherwise. Final results remain the only stdout contract.
 The read-only `operation status` command queries a retained journal and returns
-operation metadata with aggregate job counts.
+operation health (`running`, `interrupted`, `failed`, `completed`), per-stage job
+counts, failed and running jobs by human label, throughput, an ETA, and remedies.
+`operation wait` blocks until the next event and `operation recover` frees leases
+held by dead processes. Long-running commands mirror the same state to
+`<work-dir>/progress.json` and `<work-dir>/events.jsonl`, and `--detach` runs them as
+independent processes. Dataset events carry a flat `metrics` object (sections done,
+running, failed, stage mix, items, questions, calls) that agent lines print verbatim;
+lines repeat only when something changed, with a slower heartbeat otherwise.
+
+## Reliability and recovery
+
+The operation journal (SQLite, WAL) is the recovery contract for every workflow.
+
+**Identity versus budget.** An operation is identified by the inputs that change
+results: corpus revision, pipeline version, models, reasoning effort, clean-pass
+count and importance tiers. Budgets and runtime knobs (maximum residual, audit and
+generation passes, timeouts, concurrency, Copilot CLI patch version) are recorded in
+the operation's config but never identify it, so raising a budget resumes the same
+operation and repeats only the jobs that failed. A job's own input hash covers its
+source section and document revision. An operation may also declare a cache scope
+(the result-affecting settings without the corpus); completed jobs with the same
+scope, stage, entity and input hash are reused across operations, so unchanged
+documents are not regenerated after an edit elsewhere in the corpus. Evaluation
+operations declare no scope because their identity already includes the skill hash.
+
+**Failure isolation.** A failing section never aborts its siblings. The build reports
+each failure immediately with a human label (`file › heading path (lines a–b)`),
+finishes every other section, and then fails once with exit code 3, the failed labels
+and per-pass history, and `<work-dir>/failures/<operation>.json`, plus a per-section transcript (`failures/<operation>/<section>.jsonl`: every prompt and answer, each clipped to 30,000 characters, kept in memory per in-flight section and written only on failure). Publication stays
+all-or-nothing: the 100% coverage gate is what makes dataset scores meaningful, so a
+dataset that silently omits its hardest sections is never produced. A circuit breaker
+aborts the run when Copilot calls fail repeatedly before any section finishes.
+
+**Escalation.** A section that keeps finding new inventory gets twice the residual
+pass budget once, then is split in half at a paragraph break (up to two levels) and
+each part is inventoried independently; the merged output keeps the parent section's
+provenance. Convergence is made reachable rather than only extended: residual prompts
+show the source quote each existing item covers, restatements of an item on the same
+passage (same span, similar statement) do not count as new, and low-importance
+leftovers after the second pass are accepted as diminishing returns. Question
+generation has its own bounded retry budget so an unanswerable item fails visibly
+instead of looping. Calibration scores are rounded to nine decimals so rubric weights
+that sum to one only approximately cannot turn a perfect answer into 0.9999999999999999.
+
+**Leases.** A claimed job holds a 90-second lease renewed by a heartbeat every 30
+seconds and records its owner's pid and host. A claim succeeds when the job is
+pending or failed, when its lease expired, or when the owner is a dead process on the
+same host. `SIGINT` and `SIGTERM` return claimed jobs to pending and release the
+operation lock before the process exits. A run that meets a live owner waits for it
+with a visible message instead of failing at the end. Each operation also has a lock
+with a heartbeat, so two live processes cannot run it concurrently (exit code 4);
+a dead or silent owner is replaced.
 
 ## Configuration
 
-Extraction, baseline evaluation, and skill evaluation have separate CLI options. Baseline and skill evaluation inherit the dataset's model settings when callers omit them, but may use another model configuration without rebuilding the dataset. Both default to three trials per question. A skill run resolves the latest baseline matching its dataset ID, subject model, judge model, reasoning effort, trial count, evaluator version, and Copilot CLI version. Evaluation never modifies a dataset or baseline in place.
+Extraction, baseline evaluation, and skill evaluation have separate CLI options. Baseline and skill evaluation inherit the dataset's model settings when callers omit them, but may use another model configuration without rebuilding the dataset. The closed-book baseline defaults to one trial per question (it is near-deterministic and was the largest avoidable cost) and skill evaluation to three. A skill run resolves the latest baseline matching its dataset ID, subject model, judge model, reasoning effort, evaluator version, and Copilot CLI version, and accepts any baseline with at least one trial per question; uplift compares per-question means. Evaluation never modifies a dataset or baseline in place.
 
 ```sh
 skillfid dataset build \
@@ -111,7 +164,7 @@ Convert every source into a common document form:
 }
 ```
 
-Split documents along headings and other structural boundaries, then by token budget with overlap. Preserve tables, code blocks, headings, and source offsets. Assign each passage a content hash so affected questions can be invalidated when the corpus changes.
+Split documents along headings (ignoring `#` lines inside fenced code blocks), then by a maximum size (`--max-section-chars`, default 12,000), preserving tables, code blocks, headings, and source offsets. Adjacent small sections are merged into one inventory unit up to `--min-section-chars` (default 1,500) but never across a chapter-level (`#`/`##`) heading, except that a heading with almost no text of its own always joins what follows; this removes the fixed per-section calls of tiny sections. Every section carries a human label (`file › heading path (lines a–b)`) used in progress, errors, and job names. A corpus may be a directory or a single file, filtered with `--include`/`--exclude` globs. Assign each passage a content hash so affected questions can be invalidated when the corpus changes.
 
 ### 2. Build the knowledge inventory
 
@@ -131,7 +184,7 @@ Before generating questions, extract an inventory of independently testable know
 
 Importance is derived from explicit document signals such as normative language, warnings, limits, prerequisites, and exceptions. Reviewers can override it. The inventory is the denominator for coverage; question count is not.
 
-Run residual inventory passes in fresh Copilot CLI sessions. Each pass receives the corpus and current inventory and may return only missing or incorrectly merged items. Stop after a configured number of consecutive passes find no substantive additions, while recording the discovery curve and all rejected suggestions.
+Run residual inventory passes in fresh Copilot CLI sessions. Each pass receives the section and current inventory (with the source quote each item covers) and may return only missing or incorrectly merged items; restatements of an existing item on the same passage are discarded as duplicates. Stop after a configured number of consecutive passes find no substantive additions (low-importance leftovers after the second pass count as diminishing returns), while recording the discovery curve in the audit record. See [Reliability and recovery](#reliability-and-recovery) for what happens when a section does not settle. `--profile quick|standard` and `--importance` limit publication to the selected importance tiers; the 100% coverage gate then applies to the selected tiers and the coverage report records them and the excluded count.
 
 ### 3. Generate candidate questions
 
@@ -365,6 +418,14 @@ U = S_{skill} - S_{closed}
 $$
 
 Report aggregate results with confidence intervals, plus breakdowns by source document and question type. Also report the percentage of corpus sections represented by at least one retained question.
+
+## Traces, staging, and statistics
+
+The Copilot SDK runner subscribes to each session's events and attaches a `trace` to every answer: whether a skill was loaded (`true`, `false`, or `null` for closed-book runs with no skills), which files were read with their sizes, tool calls, turns, and input, output and cached tokens. Unknown events are ignored so SDK additions never break an evaluation. Skill answers also carry progressive-disclosure metrics: files and bytes read and the fraction of the skill directory loaded; a trial that loads at least 90% of the skill's bytes across three or more files is flagged as having loaded everything.
+
+Every skill trial below a perfect score is staged by a deterministic classifier before the model-based diagnosis, which receives the stage as context: `not_discovered` when the skill was available but never loaded; `false_refusal` when the answer refuses although the evidence is present in the skill; `retrieval_miss` when none of the files read contain the question's evidence (matched by normalized text, with a word-shingle fallback); `hallucination` when the judge reports unsupported claims; `application_error` when the evidence was read and the answer was still wrong. The earliest failing stage is the one to fix first.
+
+Reports and summaries carry statistics, not just means: per-condition means and paired uplift with 95% confidence intervals over per-question means, a between-trial noise estimate, and per-question stability. `eval compare` pairs two runs per question and issues a verdict from the interval of the mean delta. Behavior probes (`--probes`) run unanswerable questions and author-defined behavior checks through the skill condition and are judged separately for refusal, hallucination, and each behavior; they never influence accuracy or uplift. Partial runs (`--sample`, `--filter`) and incremental runs (`--since`, which carries forward answers whose trace did not touch a changed skill file) are marked in manifests, summaries, and reports so they are never mistaken for full evaluations. Evaluation prompts, like dataset prompts, put static instructions and the source first and the case-specific input last.
 
 ## Failure diagnosis
 

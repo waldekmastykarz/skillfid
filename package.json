@@ -19,6 +19,7 @@
   "type": "module",
   "files": [
     "src/",
+    "skills/",
     "templates/evaluation-report.html"
   ],
   "bin": {
