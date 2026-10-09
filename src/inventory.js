@@ -6,10 +6,11 @@ import { stableStringify } from './json.js';
 export const KNOWLEDGE_KINDS = new Set(['fact', 'rule', 'procedure', 'constraint', 'exception', 'warning', 'default', 'relationship', 'trend']);
 export const IMPORTANCE_LEVELS = new Set(['high', 'medium', 'low']);
 
-export function buildInventoryPrompt(section, existingItems = []) {
-  const existing = existingItems.map(({ knowledgeId, kind, statement }) => ({ knowledgeId, kind, statement }));
+export function buildInventoryPrompt(section, existingItems = [], existingEvidence = []) {
+  const quoteById = new Map(existingEvidence.map((record) => [record.evidenceId, record.quote]));
+  const existing = existingItems.map(({ knowledgeId, kind, statement, evidenceIds = [] }) => ({ knowledgeId, kind, statement, quote: quoteById.get(evidenceIds[0]) }));
   const classificationInstruction = existingItems.length
-    ? 'For this residual pass, classification describes whether missing testable knowledge remains. Return non_informational with an empty items array when the existing inventory already covers the section. Do not return paraphrases or alternate classifications of existing items.'
+    ? 'For this residual pass, classification describes whether missing testable knowledge remains. Return non_informational with an empty items array when the existing inventory already covers the section. An item is new only when it states a different testable fact from every existing item; rewording, splitting, merging, or re-typing an existing item (each existing item shows the source quote it covers) is not new. Prefer returning no items over returning a restatement.'
     : 'Return non_informational with an empty items array only when the section contains no testable knowledge.';
   return [
     'Inventory every independently testable piece of knowledge in the source section. Include facts, rules, procedures, constraints, exceptions, warnings, defaults, relationships, and trends. Do not summarize multiple distinct items into one. If existing items are supplied, return only substantive items they missed.',

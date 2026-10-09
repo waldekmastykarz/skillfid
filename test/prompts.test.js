@@ -23,5 +23,6 @@ test('recalibration oracle prompt uses rubric as coverage guidance without displ
   assert.match(prompt, /If a requirement conflicts with the source, the source wins/);
   assert.match(prompt, /never repeat the requirement unqualified/);
   assert.match(prompt, /Omit unrelated background, examples, and adjacent source facts/);
-  assert.ok(prompt.indexOf('Calibration coverage requirements:') < prompt.indexOf('Use only this complete source:'));
+  assert.ok(prompt.indexOf('Use only this complete source:') < prompt.indexOf('Calibration coverage requirements:'));
+  assert.ok(prompt.indexOf('Use only this complete source:') < prompt.indexOf('User question:'));
 });

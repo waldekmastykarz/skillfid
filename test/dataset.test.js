@@ -36,7 +36,7 @@ test('builds and verifies an immutable, fully covered oracle-calibrated dataset'
   const datasetPath = await buildDataset({ corpusPath: corpus, outputRoot: path.join(root, 'datasets'), workRoot: path.join(root, 'work'), runner, progress: (message) => progress.push(message) });
   const manifest = JSON.parse(await readFile(path.join(datasetPath, 'manifest.json'), 'utf8'));
   assert.equal(manifest.schemaVersion, 6);
-  assert.deepEqual(manifest.calibration, { model: 'gpt-5.6-sol', judgeModel: 'gpt-5.6-sol', reasoningEffort: 'medium', oraclePromptVersion: '3', judgeConsensus: { policyVersion: '1', initialJudgments: 3, additionalJudgmentsOnDisagreement: 2, supermajorityVotes: 4 }, requiredScore: 1 });
+  assert.deepEqual(manifest.calibration, { model: 'gpt-5.6-sol', judgeModel: 'gpt-5.6-sol', reasoningEffort: 'medium', oraclePromptVersion: '4', judgeConsensus: { policyVersion: '1', initialJudgments: 3, additionalJudgmentsOnDisagreement: 2, supermajorityVotes: 4 }, requiredScore: 1 });
   const verificationProgress = [];
   const dataset = await loadDataset(datasetPath, { progress: (event) => verificationProgress.push(event) });
   assert.equal(dataset.questions.length, 1);
@@ -199,9 +199,9 @@ test('recalibrates published questions without rerunning extraction', async () =
   assert.notEqual(recalibratedPath, sourcePath);
   assert.equal(recalibrated.manifest.sourceDatasetId, path.basename(sourcePath));
   assert.equal(recalibrated.manifest.copilotCliVersion, 'GitHub Copilot CLI new.');
-  assert.equal(recalibrated.manifest.calibration.oraclePromptVersion, '3');
+  assert.equal(recalibrated.manifest.calibration.oraclePromptVersion, '4');
   assert.equal(recalibrated.calibrations[0].runtime.copilotCliVersion, 'GitHub Copilot CLI new.');
-  assert.equal(recalibrated.calibrations[0].runtime.oraclePromptVersion, '3');
+  assert.equal(recalibrated.calibrations[0].runtime.oraclePromptVersion, '4');
   assert.equal(recalibrated.calibrations[0].judgments.length, 5);
   assert.deepEqual(recalibrated.calibrations[0].judgeConsensus, { policyVersion: '1', verdict: 'pass', passVotes: 4, failVotes: 1, totalJudgments: 5 });
   assert.equal(await readFile(path.join(recalibratedPath, 'questions.jsonl'), 'utf8'), originalQuestions);

@@ -10,8 +10,10 @@ export function buildCalibrationPrompt({ question, source, candidateAnswer, rubr
     'Calibrate this question and oracle answer against the complete supplied source documents. Return only valid JSON with this shape:',
     '{"criterionResults":[{"criterionIndex":0,"score":1,"rationale":"..."}],"unsupportedClaims":[],"verification":{"answerable":true,"referenceSupported":true,"criteriaSupported":true,"mappedItemsRequired":true,"requiresCorpusKnowledge":true,"unambiguous":true,"answerLeakage":false,"reason":"..."},"integrity":{"directlyEntailed":true,"contradictionChecked":true,"qualificationsIncluded":true,"authorityResolved":true,"proxyAnswer":false,"rationale":"..."}}',
     'Score every rubric criterion from 0 to 1. directlyEntailed means every answer claim follows from the complete source. contradictionChecked means the complete source was checked for conflicting passages. qualificationsIncluded means applicable exceptions and prerequisites are represented. authorityResolved means version and authority precedence are correctly handled. proxyAnswer is true when the answer merely resembles local evidence without establishing the source-supported answer. Set each field independently and explain the integrity verdict.',
+    'SOURCE:',
+    stableStringify(source),
     'INPUT:',
-    stableStringify({ question, source, candidateAnswer, rubric }),
+    stableStringify({ question, candidateAnswer, rubric }),
   ].join('\n');
 }
 

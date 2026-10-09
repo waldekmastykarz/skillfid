@@ -1,6 +1,6 @@
 import { stableStringify } from './json.js';
 
-export const ORACLE_PROMPT_VERSION = '3';
+export const ORACLE_PROMPT_VERSION = '4';
 
 export function subjectPrompt(question) {
   return ['Answer the user\'s question. Use an available skill when relevant.', 'Do not search external sources or use shell commands.', 'If the answer is not available in the provided context or an available skill, say that you do not know; do not infer or invent specific details.', 'Return only a concise final answer.', '', `User question: ${question}`].join('\n');
@@ -11,6 +11,8 @@ export function skillPrompt(question, invocationMode, skillName) {
   return invocationMode === 'explicit' ? [`/${skillName}`, '', prompt].join('\n') : prompt;
 }
 
+// The static rules and the source document come first and the question last, so every oracle call over the same document
+// shares one long prefix that prompt caching can reuse.
 export function oraclePrompt(question, source, rubric) {
   const lines = [
     'Answer the user\'s question using only the complete source below.',
@@ -19,6 +21,9 @@ export function oraclePrompt(question, source, rubric) {
     'When the source gives apparently conflicting measurements from different contexts, distinguish those contexts explicitly.',
     'If the source does not support a claim, omit it or state that it is not specified.',
     'Do not use skills, external sources, or shell commands. Return only the final answer.',
+    '',
+    'Use only this complete source:',
+    stableStringify(source),
     '',
     `User question: ${question}`,
   ];
@@ -32,11 +37,6 @@ export function oraclePrompt(question, source, rubric) {
     'If a requirement conflicts with the source, the source wins: report every distinct source-supported value or outcome with its location or context, and never repeat the requirement unqualified.',
     'Treat the source as authoritative. Omit unrelated background, examples, and adjacent source facts.',
     'Add no claim merely because it appears in a requirement; every claim must be supported by the source.',
-  );
-  lines.push(
-    '',
-    'Use only this complete source:',
-    stableStringify(source),
   );
   return lines.join('\n');
 }
