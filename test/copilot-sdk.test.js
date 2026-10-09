@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, test } from 'node:test';
 
@@ -107,5 +107,62 @@ test('retries a timed-out SDK session without restarting the client', async () =
   assert.equal(starts, 1);
   assert.equal(sessions, 2);
   assert.match(progress[0].message, /timeout retry 1\/1/);
+  await runner.close();
+});
+test('returns a trace built from session events', async () => {
+  const workspace = path.join(root, 'trace-workspace');
+  const skillDirectory = path.join(workspace, '.github', 'skills', 'ax-practitioner');
+  await mkdir(path.join(skillDirectory, 'references'), { recursive: true });
+  await writeFile(path.join(skillDirectory, 'SKILL.md'), 'Skill body');
+  await writeFile(path.join(skillDirectory, 'references', 'a.md'), '12345');
+  const handlers = new Set();
+  let unsubscribed = 0;
+  const emit = (event) => handlers.forEach((handler) => handler(event));
+  const client = {
+    async start() {},
+    async createSession() {
+      return {
+        on(handler) { handlers.add(handler); return () => { handlers.delete(handler); unsubscribed += 1; }; },
+        async sendAndWait() {
+          emit({ type: 'assistant.turn_start', data: {} });
+          emit({ type: 'skill.invoked', data: { name: 'ax-practitioner', path: path.join(skillDirectory, 'SKILL.md') } });
+          emit({ type: 'tool.execution_start', data: { toolCallId: '1', toolName: 'view', arguments: { path: path.join(skillDirectory, 'references', 'a.md') } } });
+          emit({ type: 'assistant.usage', data: { inputTokens: 10, outputTokens: 3, cacheReadTokens: 4 } });
+          return { data: { content: 'answer' } };
+        },
+        async disconnect() {},
+      };
+    },
+    async forceStop() {},
+  };
+  const runner = new CopilotSdkRunner({}, { createClient: () => client });
+
+  const result = await runner.run(workspace, 'Question');
+
+  assert.equal(result.answer, 'answer');
+  assert.deepEqual(result.trace, {
+    skillLoaded: true,
+    skillName: 'ax-practitioner',
+    filesRead: [{ path: '.github/skills/ax-practitioner/SKILL.md', bytes: 10 }, { path: '.github/skills/ax-practitioner/references/a.md', bytes: 5 }],
+    toolCalls: [{ name: 'view', target: path.join(skillDirectory, 'references', 'a.md') }],
+    turns: 1, inputTokens: 10, outputTokens: 3, cachedTokens: 4,
+  });
+  assert.equal(unsubscribed, 1);
+  await runner.close();
+});
+
+test('traces a closed-book run and a preloaded explicit skill without session events', async () => {
+  const closed = path.join(root, 'trace-closed');
+  const skilled = path.join(root, 'trace-skilled');
+  await mkdir(closed, { recursive: true });
+  await mkdir(path.join(skilled, '.github', 'skills', 'ax'), { recursive: true });
+  await writeFile(path.join(skilled, '.github', 'skills', 'ax', 'SKILL.md'), 'abc');
+  const client = { async start() {}, async createSession() { return { async sendAndWait() { return { data: { content: 'x' } }; }, async disconnect() {} }; }, async forceStop() {} };
+  const runner = new CopilotSdkRunner({}, { createClient: () => client });
+  assert.equal((await runner.run(closed, 'Q')).trace.skillLoaded, null);
+  assert.equal((await runner.run(skilled, 'Q')).trace.skillLoaded, false);
+  const explicit = (await runner.run(skilled, '/ax\n\nQ')).trace;
+  assert.equal(explicit.skillLoaded, true);
+  assert.deepEqual(explicit.filesRead, [{ path: '.github/skills/ax/SKILL.md', bytes: 3 }]);
   await runner.close();
 });

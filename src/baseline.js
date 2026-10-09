@@ -2,10 +2,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
+import { SkillfidError } from './errors.js';
 import { readJson, readJsonl, writeJson, writeJsonl } from './files.js';
 import { stableStringify } from './json.js';
 
-export class BaselineError extends Error {}
+export class BaselineError extends SkillfidError {
+  constructor(message, options = {}) { super(message, { code: 'BASELINE_INVALID', ...options }); }
+}
 
 export function baselineCompatibilityKey(compatibility) {
   return createHash('sha256').update(stableStringify(compatibility), 'utf8').digest('hex');
@@ -63,13 +66,14 @@ export async function loadBaseline(baselinePath, compatibility) {
   return { baselinePath: root, manifest, answers, judgments };
 }
 
-export function assertBaselineCoverage({ answers, judgments }, questions, trialsPerQuestion) {
+// A baseline is reusable for any subset of its questions and any number of skill trials; it only needs minimumTrials per requested question.
+export function assertBaselineCoverage({ answers, judgments }, questions, minimumTrials = 1) {
   assertBaselineRecords(answers, judgments);
-  const expectedKeys = new Set(questions.flatMap((question) => Array.from({ length: trialsPerQuestion }, (_, trial) => `${question.testId}:${trial}`)));
-  const answerKeys = new Set(answers.map(recordKey));
-  const judgmentKeys = new Set(judgments.map(recordKey));
-  if (answerKeys.size !== expectedKeys.size || [...expectedKeys].some((key) => !answerKeys.has(key) || !judgmentKeys.has(key))) {
-    throw new BaselineError(`Baseline coverage does not match ${questions.length} questions with ${trialsPerQuestion} trials each`);
+  const trialsByQuestion = new Map();
+  for (const answer of answers) trialsByQuestion.set(answer.testId, (trialsByQuestion.get(answer.testId) ?? 0) + 1);
+  const missing = questions.filter((question) => (trialsByQuestion.get(question.testId) ?? 0) < minimumTrials);
+  if (missing.length) {
+    throw new BaselineError(`Baseline coverage does not include ${missing.length} of ${questions.length} questions with at least ${minimumTrials} trial${minimumTrials === 1 ? '' : 's'} each`, { details: { missingTestIds: missing.map((question) => question.testId).slice(0, 20) } });
   }
 }
 

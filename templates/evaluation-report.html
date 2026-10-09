@@ -170,7 +170,7 @@
     .action-changes { display: grid; gap: 8px; margin: 10px 0 0; padding-left: 20px; color: var(--cp-text-muted); font-size: 14px; line-height: 1.45; }
     .change-impact { margin-left: 6px; color: var(--cp-text-soft); font-size: 12px; white-space: nowrap; }
     .affected { color: var(--cp-text-muted); font-size: 12px; white-space: nowrap; }
-    .filters { display: grid; grid-template-columns: minmax(220px, 1fr) 180px 180px; gap: 10px; margin-bottom: 14px; }
+    .filters { display: grid; grid-template-columns: minmax(220px, 1fr) 180px 180px 180px; gap: 10px; margin-bottom: 14px; }
     .control {
       width: 100%;
       min-height: 40px;
@@ -229,7 +229,42 @@
       font-size: 20px;
     }
     .close:hover { border-color: var(--cp-border-strong); }
+    .banners { display: grid; gap: 8px; margin-top: 20px; }
+    .banner { padding: 10px 14px; border: 1px solid var(--cp-warning); border-radius: 10px; background: var(--cp-surface); color: var(--cp-text); font-size: 13px; line-height: 1.5; }
+    .banner.info { border-color: var(--cp-link); }
+    .ci { display: block; margin-top: 4px; color: var(--cp-text-soft); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .ci:empty { display: none; }
+    .score-ci { display: block; margin-top: 4px; color: var(--cp-text-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+    .breakdown-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .breakdown-grid .table-wrap { min-width: 0; }
+    .breakdown-grid table { min-width: 0; }
+    .breakdown-grid td.numeric, .breakdown-grid th.numeric { white-space: nowrap; }
+    .breakdown-grid h3 { margin: 0 0 8px; }
+    .breakdown-grid tbody tr { cursor: default; }
+    .heatmap-doc { margin-bottom: 18px; }
+    .heatmap-doc h3 { margin: 0 0 8px; font-family: Consolas, "Courier New", Courier, monospace; font-size: 13px; }
+    .heatmap-cells { display: flex; flex-wrap: wrap; gap: 4px; }
+    .cell { width: 62px; height: 46px; padding: 4px; border: 1px solid var(--cp-border); border-radius: 6px; font-size: 10px; line-height: 1.2; overflow: hidden; color: #1a1a1a; }
+    .cell strong { display: block; font-size: 12px; }
+    .cell.empty-cell { background: var(--cp-surface-soft); color: var(--cp-text-muted); }
+    .legend { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--cp-text-muted); font-size: 12px; }
+    .legend-bar { width: 160px; height: 10px; border-radius: 5px; background: linear-gradient(90deg, hsl(0 70% 62%), hsl(60 70% 62%), hsl(120 55% 52%)); }
+    .stage-row { display: grid; grid-template-columns: 180px minmax(0, 1fr) 90px; gap: 12px; align-items: center; padding: 6px 0; font-size: 13px; }
+    .bar { height: 10px; border-radius: 5px; background: var(--cp-surface-soft); overflow: hidden; }
+    .bar > span { display: block; height: 100%; background: var(--cp-accent); }
+    .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+    .card { padding: 16px; border: 1px solid var(--cp-border); border-radius: 12px; background: var(--cp-surface); }
+    .card strong { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+    .card span { color: var(--cp-text-muted); font-size: 12px; }
+    .sub-heading { margin: 28px 0 4px; font-size: 16px; }
+    .probe-list { display: grid; gap: 8px; margin-top: 12px; }
+    .pass { color: var(--cp-success); }
+    .fail { color: var(--cp-danger); }
     footer { padding: 28px 0 48px; color: var(--cp-text-muted); font-size: 12px; }
+    @media (max-width: 800px) {
+      .breakdown-grid, .cards { grid-template-columns: 1fr; }
+      .stage-row { grid-template-columns: 1fr; gap: 4px; }
+    }
     @media (max-width: 800px) {
       .shell { width: min(100% - 24px, 1180px); }
       .nav { display: none; }
@@ -258,6 +293,9 @@
         <nav class="nav" aria-label="Report sections">
           <a href="#outcome">Outcome</a>
           <a href="#findings">Improvements</a>
+          <a href="#breakdowns">Breakdowns</a>
+          <a href="#heatmap">Heat map</a>
+          <a href="#behavior">Behavior</a>
           <a href="#analyzed">Scope</a>
           <a href="#tests">Evidence</a>
         </nav>
@@ -274,6 +312,7 @@
           <span id="question-total"></span>
           <span id="trial-total"></span>
         </div>
+        <div class="banners" id="banners"></div>
       </div>
     </div>
   </header>
@@ -290,12 +329,13 @@
           <div class="verdict-score">
             <span class="score-value" id="skill-score"></span>
             <span class="score-caption">skill-assisted score</span>
+            <span class="score-ci" id="skill-ci"></span>
           </div>
         </div>
         <div class="metrics" aria-label="Evaluation metrics">
-          <div class="metric"><span class="metric-value" id="closed-book-score"></span><span class="metric-label">Without the skill</span></div>
-          <div class="metric"><span class="metric-value success" id="uplift-score"></span><span class="metric-label">Percentage-point uplift</span></div>
-          <div class="metric"><span class="metric-value" id="fully-correct"></span><span class="metric-label">Questions perfect in every trial</span></div>
+          <div class="metric"><span class="metric-value" id="closed-book-score"></span><span class="metric-label">Without the skill</span><span class="ci" id="closed-book-ci"></span></div>
+          <div class="metric"><span class="metric-value success" id="uplift-score"></span><span class="metric-label">Percentage-point uplift</span><span class="ci" id="uplift-ci"></span></div>
+          <div class="metric"><span class="metric-value" id="fully-correct"></span><span class="metric-label">Questions perfect in every trial</span><span class="ci" id="noise-note"></span></div>
         </div>
       </div>
     </section>
@@ -322,6 +362,49 @@
           <div class="count"><strong id="weak-count"></strong><span>Weak: &gt;0%–&lt;70%</span></div>
           <div class="count"><strong id="zero-count"></strong><span>Zero: 0%</span></div>
         </div>
+      </div>
+    </section>
+
+    <section id="breakdowns">
+      <div class="shell">
+        <div class="section-heading">
+          <div><h2>Where the skill helps</h2><p class="section-note">Mean scores per group of questions. A question that draws on several sections or documents counts in each of them.</p></div>
+        </div>
+        <div class="breakdown-grid" id="breakdown-tables"></div>
+      </div>
+    </section>
+
+    <section id="heatmap">
+      <div class="shell">
+        <div class="section-heading">
+          <div><h2>Corpus heat map</h2><p class="section-note">One cell per source section, colored by the mean skill score of the questions grounded in it. Hover a cell for details.</p></div>
+        </div>
+        <div id="heatmap-body"></div>
+        <div class="legend"><span>0%</span><span class="legend-bar"></span><span>100%</span><span>· gray: no evaluated questions</span></div>
+      </div>
+    </section>
+
+    <section id="behavior">
+      <div class="shell">
+        <div class="section-heading">
+          <div><h2>How the agent used the skill</h2><p class="section-note">Where failing trials went wrong, how much of the skill the agent loaded, and what each answer cost.</p></div>
+        </div>
+        <h3 class="sub-heading">Failure stages</h3>
+        <div id="stage-rows"></div>
+        <h3 class="sub-heading" id="disclosure-title">Progressive disclosure</h3>
+        <div class="cards" id="disclosure-cards"></div>
+        <h3 class="sub-heading" id="usage-title">Latency and tokens</h3>
+        <div class="cards" id="usage-cards"></div>
+      </div>
+    </section>
+
+    <section id="probes" hidden>
+      <div class="shell">
+        <div class="section-heading">
+          <div><h2>Probes</h2><p class="section-note">Unanswerable and behavior checks run through the skill. They do not affect the accuracy numbers above.</p></div>
+        </div>
+        <div class="cards" id="probe-cards"></div>
+        <div class="probe-list" id="probe-list"></div>
       </div>
     </section>
 
@@ -365,10 +448,20 @@
             <option value="test_or_model_limitation">Test or model limitation</option>
             <option value="unknown">Unknown</option>
           </select>
+          <select class="control" id="stage-filter" aria-label="Filter by failure stage">
+            <option value="all">All stages</option>
+            <option value="none">No failing trial</option>
+            <option value="not_discovered">Skill not discovered</option>
+            <option value="retrieval_miss">Retrieval miss</option>
+            <option value="false_refusal">False refusal</option>
+            <option value="hallucination">Hallucination</option>
+            <option value="application_error">Application error</option>
+            <option value="unknown">Unclassified</option>
+          </select>
         </div>
         <div class="table-wrap">
-          <table>
-            <thead><tr><th>Question</th><th>Result</th><th class="numeric">Without skill</th><th class="numeric">With skill</th><th>Diagnosis</th></tr></thead>
+          <table id="test-table">
+            <thead><tr><th>Question</th><th>Result</th><th class="numeric">Without skill</th><th class="numeric">With skill</th><th>Diagnosis</th><th>Failure stage</th></tr></thead>
             <tbody id="test-rows"></tbody>
           </table>
           <div class="empty" id="empty" hidden>No tests match these filters.</div>
@@ -396,7 +489,9 @@
     const resultCount = document.getElementById("result-count");
     const search = document.getElementById("search");
     const statusFilter = document.getElementById("status-filter");
+    const stageLabels = { none: "—", not_discovered: "Skill not discovered", retrieval_miss: "Retrieval miss", false_refusal: "False refusal", hallucination: "Hallucination", application_error: "Application error", unknown: "Unclassified" };
     const causeFilter = document.getElementById("cause-filter");
+    const stageFilter = document.getElementById("stage-filter");
     const detail = document.getElementById("detail");
 
     document.title = `${report.title} evaluation report`;
@@ -411,6 +506,134 @@
     document.getElementById("skill-score").textContent = report.scores.skill;
     document.getElementById("closed-book-score").textContent = report.scores.closedBook;
     document.getElementById("uplift-score").textContent = report.scores.uplift;
+    document.getElementById("skill-ci").textContent = report.scores.skillInterval ? `95% CI ${report.scores.skillInterval}` : "";
+    document.getElementById("closed-book-ci").textContent = report.scores.closedBookInterval ? `95% CI ${report.scores.closedBookInterval}` : "";
+    document.getElementById("uplift-ci").textContent = report.scores.upliftInterval ? `95% CI ${report.scores.upliftInterval}` : "";
+    document.getElementById("noise-note").textContent = report.scores.noise || "";
+
+    function el(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = text;
+      return node;
+    }
+
+    const banners = document.getElementById("banners");
+    if (report.partial) {
+      const detail = [report.partial.sample ? `sample of ${report.partial.sample.n} (seed ${report.partial.sample.seed})` : "", report.partial.filter ? `filter ${report.partial.filter}` : ""].filter(Boolean).join(", ");
+      banners.appendChild(el("div", "banner", `Partial run: ${report.partial.questions} of ${report.partial.of} questions were evaluated${detail ? ` (${detail})` : ""}. Scores cover only that subset.`));
+    }
+    if (report.incremental) {
+      const changed = report.incremental.changedFiles ? [...report.incremental.changedFiles.changed, ...report.incremental.changedFiles.added, ...report.incremental.changedFiles.removed].length : 0;
+      banners.appendChild(el("div", "banner info", `Incremental run since ${report.incremental.since}: ${report.incremental.rerun} question${report.incremental.rerun === 1 ? "" : "s"} re-evaluated, ${report.incremental.carried} carried forward unchanged; ${changed} skill file${changed === 1 ? "" : "s"} changed.`));
+    }
+    if (report.adaptive) banners.appendChild(el("div", "banner info", "Adaptive run: only questions that missed in trial 1 received the remaining trials."));
+
+    function renderTable(headers, rowsData) {
+      const wrap = el("div", "table-wrap");
+      const table = el("table");
+      const head = el("thead");
+      const headRow = el("tr");
+      headers.forEach((header, index) => headRow.appendChild(el("th", index > 0 ? "numeric" : "", header)));
+      head.appendChild(headRow);
+      const body = el("tbody");
+      rowsData.forEach((cells) => {
+        const row = el("tr");
+        cells.forEach((cell, index) => row.appendChild(el("td", index > 0 ? "numeric" : "", String(cell))));
+        body.appendChild(row);
+      });
+      table.append(head, body);
+      wrap.appendChild(table);
+      return wrap;
+    }
+
+    const breakdownTables = document.getElementById("breakdown-tables");
+    [["By question type", "type"], ["By difficulty", "difficulty"], ["By importance", "importance"], ["By document", "document"], ["By section", "section"]].forEach(([heading, key]) => {
+      const rowsData = report.breakdowns[key];
+      if (!rowsData.length) return;
+      const block = el("div");
+      block.appendChild(el("h3", "", heading));
+      block.appendChild(renderTable(["Group", "n", "Without skill", "With skill", "Uplift"], rowsData.map((row) => [row.label, row.n, row.baseline, row.skill, row.uplift])));
+      breakdownTables.appendChild(block);
+    });
+
+    function heatColor(value) {
+      return `hsl(${Math.round(Math.max(0, Math.min(1, value)) * 120)} 65% 66%)`;
+    }
+    const heatmapBody = document.getElementById("heatmap-body");
+    if (!report.heatmap.length) document.getElementById("heatmap").hidden = true;
+    report.heatmap.forEach((documentEntry) => {
+      const block = el("div", "heatmap-doc");
+      block.appendChild(el("h3", "", documentEntry.documentId));
+      const cells = el("div", "heatmap-cells");
+      documentEntry.sections.forEach((section) => {
+        const cell = el("div", section.skill === null ? "cell empty-cell" : "cell");
+        if (section.skill !== null) cell.style.background = heatColor(section.skill);
+        cell.title = section.title;
+        cell.tabIndex = 0;
+        cell.setAttribute("aria-label", section.title);
+        cell.appendChild(el("strong", "", section.skillLabel === "not evaluated" ? "—" : section.skillLabel.replace(/(\.\d)\d*%$/, "$1%")));
+        cell.appendChild(document.createTextNode(section.label.length > 22 ? `${section.label.slice(0, 21)}…` : section.label));
+        cells.appendChild(cell);
+      });
+      block.appendChild(cells);
+      heatmapBody.appendChild(block);
+    });
+
+    const stageRows = document.getElementById("stage-rows");
+    if (!report.failureStages.recorded) stageRows.appendChild(el("p", "section-note", "This run did not record traces, so failures are not staged. Rerun the evaluation with the current skillfid to see them."));
+    else if (!report.failureStages.failingTrials) stageRows.appendChild(el("p", "section-note", "No failing skill trials."));
+    report.failureStages.rows.filter((row) => row.count).forEach((row) => {
+      const line = el("div", "stage-row");
+      const bar = el("div", "bar");
+      const fill = el("span");
+      fill.style.width = `${Math.round(row.share * 100)}%`;
+      bar.appendChild(fill);
+      line.append(el("span", "", row.label), bar, el("span", "numeric", `${row.count} (${Math.round(row.share * 100)}%)`));
+      stageRows.appendChild(line);
+    });
+
+    function renderCards(container, entries) {
+      entries.forEach(([value, label]) => {
+        const card = el("div", "card");
+        card.append(el("strong", "", String(value)), el("span", "", label));
+        container.appendChild(card);
+      });
+    }
+    if (report.progressiveDisclosure) {
+      const pd = report.progressiveDisclosure;
+      renderCards(document.getElementById("disclosure-cards"), [[pd.skillLoadedRate, "trials that loaded the skill"], [pd.meanFilesRead, "skill files read per trial"], [pd.meanFractionLoaded, "of the skill directory loaded"], [pd.loadedEverythingRate, "trials that loaded everything"]]);
+    } else {
+      document.getElementById("disclosure-title").hidden = true;
+    }
+    if (report.usage.skill) {
+      const usage = report.usage.skill;
+      renderCards(document.getElementById("usage-cards"), [[usage.medianSeconds, "median answer time"], [usage.p90Seconds, "p90 answer time"], [usage.meanInputTokens, "mean input tokens"], [usage.meanOutputTokens, "mean output tokens"]]);
+    } else {
+      document.getElementById("usage-title").hidden = true;
+    }
+
+    if (report.probes) {
+      document.getElementById("probes").hidden = false;
+      const probeSummary = report.probes.summary;
+      renderCards(document.getElementById("probe-cards"), [[probeSummary.correctRefusalRate, "correct refusals"], [probeSummary.hallucinationRate, "hallucination rate"], [probeSummary.behaviorPassRate, "expected behaviors shown"], [probeSummary.answeredWhenExpectedRate, "answered when expected"]]);
+      const list = document.getElementById("probe-list");
+      report.probes.rows.forEach((probe) => {
+        const item = el("details", "trial");
+        item.appendChild(el("summary", "", `${probe.passed === probe.trials ? "✓" : "✗"} ${probe.id} · expects ${probe.expect} · ${probe.passed}/${probe.trials} trials passed · ${probe.question}`));
+        const body = el("div", "trial-body");
+        probe.details.forEach((trial) => {
+          body.appendChild(el("p", trial.passed ? "pass" : "fail", `Trial ${trial.trial + 1}: ${trial.passed ? "passed" : "failed"} · refused ${trial.refused ? "yes" : "no"} · hallucinated ${trial.hallucinated ? "yes" : "no"}`));
+          body.appendChild(el("p", "trial-answer", trial.answer || "No answer text recorded."));
+          const findings = el("ul", "trial-findings");
+          trial.behaviors.forEach((behavior) => findings.appendChild(el("li", behavior.passed ? "pass" : "fail", `${behavior.passed ? "Showed" : "Missed"}: ${behavior.text} — ${behavior.rationale}`)));
+          if (trial.rationale) findings.appendChild(el("li", "", trial.rationale));
+          body.appendChild(findings);
+        });
+        item.appendChild(body);
+        list.appendChild(item);
+      });
+    }
     document.getElementById("fully-correct").textContent = `${report.counts.fullyCorrect} / ${report.counts.questions}`;
     document.getElementById("document-count").textContent = report.counts.documents;
     document.getElementById("knowledge-count").textContent = report.counts.knowledge;
@@ -457,7 +680,7 @@
         content.append(heading, changes);
         const affected = document.createElement("span");
         affected.className = "affected";
-        affected.textContent = `${recommendation.affectedTests} test${recommendation.affectedTests === 1 ? "" : "s"}`;
+        affected.textContent = recommendation.impact || `${recommendation.affectedTests} test${recommendation.affectedTests === 1 ? "" : "s"}`;
         action.append(priority, content, affected);
         recommendations.appendChild(action);
       });
@@ -484,6 +707,8 @@
           answer.className = "trial-answer";
           answer.textContent = entry.answer || "No answer text recorded.";
           body.appendChild(answer);
+          const meta = [entry.stage ? `Failure stage: ${entry.stage}` : "", entry.skillLoaded === true ? "Skill loaded" : entry.skillLoaded === false ? "Skill not loaded" : "", entry.filesRead && entry.filesRead.length ? `Files read: ${entry.filesRead.join(", ")}` : "", entry.seconds !== undefined ? `${entry.seconds} s` : ""].filter(Boolean).join(" · ");
+          if (meta) { const note = document.createElement("p"); note.className = "section-note"; note.textContent = meta; body.appendChild(note); }
           if (entry.failedCriteria.length) {
             const findings = document.createElement("ul");
             findings.className = "trial-findings";
@@ -508,28 +733,31 @@
         const matchesText = !query || `${test.question} ${test.source} ${labels[test.cause] ?? test.cause}`.toLowerCase().includes(query);
         const matchesStatus = statusFilter.value === "all" || test.status === statusFilter.value;
         const matchesCause = causeFilter.value === "all" || test.cause === causeFilter.value;
-        return matchesText && matchesStatus && matchesCause;
+        const matchesStage = stageFilter.value === "all" || test.stage === stageFilter.value;
+        return matchesText && matchesStatus && matchesCause && matchesStage;
       });
       rows.replaceChildren();
       filtered.forEach((test) => {
         const row = document.createElement("tr");
         row.tabIndex = 0;
-        row.innerHTML = `<td class="test-name"></td><td><span class="status ${test.status}">${labels[test.status]}</span></td><td class="numeric">${test.baseline}</td><td class="numeric">${test.skill}</td><td></td>`;
-        row.children[0].textContent = test.question;
+        row.innerHTML = `<td class="test-name"></td><td><span class="status ${test.status}">${labels[test.status]}</span></td><td class="numeric">${test.baseline}</td><td class="numeric">${test.skill}</td><td></td><td></td>`;
+        row.children[0].textContent = test.question + (test.carried ? " (carried forward)" : "");
         row.children[4].textContent = labels[test.cause] ?? test.cause;
+        row.children[5].textContent = stageLabels[test.stage] ?? test.stage;
         row.addEventListener("click", () => showDetail(test));
         row.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); showDetail(test); } });
         rows.appendChild(row);
       });
       resultCount.textContent = String(filtered.length);
       empty.hidden = filtered.length !== 0;
-      document.querySelector("table").hidden = filtered.length === 0;
+      document.getElementById("test-table").hidden = filtered.length === 0;
       detail.hidden = true;
     }
 
     search.addEventListener("input", render);
     statusFilter.addEventListener("change", render);
     causeFilter.addEventListener("change", render);
+    stageFilter.addEventListener("change", render);
     document.getElementById("close-detail").addEventListener("click", () => { detail.hidden = true; });
     render();
   </script>

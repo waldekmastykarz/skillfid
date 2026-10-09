@@ -8,8 +8,12 @@ export function buildJudgePrompt({ question, source, candidateAnswer, rubric }) 
     'Judge the candidate answer against each rubric criterion using only the complete supplied source as ground truth. Return only valid JSON with this shape:',
     '{"criterionResults":[{"criterionIndex":0,"score":0,"rationale":"..."}],"unsupportedClaims":[]}',
     'Scores must be numbers from 0 to 1. Include every criterion exactly once.',
+    '',
+    'SOURCE:',
+    stableStringify(source),
+    '',
     'INPUT:',
-    stableStringify({ question, source, candidateAnswer, rubric }),
+    stableStringify({ question, candidateAnswer, rubric }),
   ].join('\n');
 }
 

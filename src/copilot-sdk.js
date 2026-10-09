@@ -4,6 +4,8 @@ import { performance } from 'node:perf_hooks';
 
 import { approveAll, CopilotClient, RuntimeConnection } from '@github/copilot-sdk';
 
+import { TraceCollector } from './trace.js';
+
 export class CopilotSdkRunError extends Error {}
 
 export class CopilotSdkRunner {
@@ -45,15 +47,19 @@ export class CopilotSdkRunner {
           customAgents: [{ name: 'skillfid-explicit', prompt: 'Answer the user directly and follow the preloaded skill instructions.', skills: [invocation.name], tools: null }],
         } : {}),
       });
+      const collector = new TraceCollector({ workspace, skillsAvailable: skillDirectories.length > 0, preloadedSkill: invocation ? { name: invocation.name, path: path.join(invocation.directory, 'SKILL.md') } : undefined });
+      const unsubscribe = session.on?.((event) => { try { collector.handle(event); } catch { /* tracing must never fail an answer */ } });
       try {
         const response = await session.sendAndWait({ prompt: invocation?.prompt ?? prompt }, this.config.timeoutSeconds * 1000);
         const answer = response?.data.content?.trim();
         if (!answer) throw new CopilotSdkRunError('Copilot SDK returned no assistant message');
-        return { answer, stderr: '', exitCode: 0, durationSeconds: (performance.now() - startedAt) / 1000 };
+        const trace = await collector.finalize();
+        return { answer, stderr: '', exitCode: 0, durationSeconds: (performance.now() - startedAt) / 1000, trace };
       } catch (error) {
         if (!isTimeout(error) || attempt === this.config.maxTimeoutRetries) throw new CopilotSdkRunError(error instanceof Error ? error.message : String(error), { cause: error });
         this.config.progress?.({ type: 'retry', message: `Copilot timed out after ${this.config.timeoutSeconds} seconds; retrying (timeout retry ${attempt + 1}/${this.config.maxTimeoutRetries})`, details: { workspace: path.basename(workspace), attempt: attempt + 1, maxAttempts: this.config.maxTimeoutRetries } });
       } finally {
+        unsubscribe?.();
         await session.disconnect();
       }
     }
@@ -129,7 +135,7 @@ function explicitSkillInvocation(prompt, skillDirectories) {
   if (!match) return undefined;
   const directory = skillDirectories.find((item) => path.basename(item) === match[1]);
   if (!directory) return undefined;
-  return { name: match[1], prompt: prompt.slice(match[0].length) };
+  return { name: match[1], directory, prompt: prompt.slice(match[0].length) };
 }
 
 function isTimeout(error) {
