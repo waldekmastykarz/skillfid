@@ -18,7 +18,7 @@ test('agent progress throttles routine events but always reports checkpoints', (
   now = 5_000; reporter.report('Routine detail');
   now = 6_000; reporter.report('Evaluation jobs: completed 1, running 2, pending 3, failed 0');
   assert.equal(output.split('\n').filter(Boolean).length, 2);
-  assert.match(output, /suppressed=1/);
+  assert.doesNotMatch(output, /Routine detail/);
   assert.match(output, /Evaluation jobs/);
 });
 

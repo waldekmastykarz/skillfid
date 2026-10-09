@@ -1,8 +1,10 @@
+import { appendFileSync, mkdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const IMPORTANT_PATTERN = /(?:operation\s|jobs:|retrying|dataset ready:|evaluation complete:|dataset verification complete:|failed\b|error\b|interrupted)/i;
-const IMPORTANT_TYPES = new Set(['checkpoint', 'complete', 'error', 'operation', 'retry']);
+const IMPORTANT_TYPES = new Set(['checkpoint', 'complete', 'error', 'operation', 'retry', 'warning']);
 const RATE_WINDOW_SECONDS = 300;
 const MIN_RATE_SAMPLES = 8;
 
@@ -40,7 +42,7 @@ class HumanProgressReporter extends BaseProgressReporter {
   constructor(options) {
     super(options);
     this.state = { title: 'Working', current: 'Starting' };
-    this.estimate = { samples: [] };
+    this.eta = new EtaEstimator();
     this.frame = 0;
     this.renderedLines = 0;
     this.timer = setInterval(() => this.render(), 80);
@@ -53,12 +55,13 @@ class HumanProgressReporter extends BaseProgressReporter {
     this.state = {
       ...this.state,
       ...pickDefined(event, ['workflow', 'title', 'phase', 'current', 'output', 'progress']),
-      metrics: event.metrics,
+      metrics: event.metrics ?? this.state.metrics,
     };
     if (event.progress) this.recordProgress(event.progress);
     if (event.type === 'complete') this.complete(event);
     else if (event.type === 'error') this.notice('error', event.message ?? event.current ?? 'Failed');
     else if (event.type === 'retry') this.notice('retry', event.message ?? 'Retrying');
+    else if (event.type === 'warning') this.notice('warning', event.message ?? 'Warning');
     else this.render();
   }
 
@@ -80,6 +83,7 @@ class HumanProgressReporter extends BaseProgressReporter {
     } else if (this.state.metrics) {
       lines.push(...Object.entries(this.state.metrics).map(([label, value]) => `   ${label.padEnd(11)} ${value}`));
     }
+    if (this.state.progress && this.state.metrics) lines.push(`   \x1b[2m${formatMetrics(this.state.metrics)}\x1b[0m`);
     lines.push(`   \x1b[2m${this.state.current ?? this.state.phase ?? 'Working'}\x1b[0m`);
     lines.push(`   \x1b[2m${formatElapsed(elapsed)} elapsed${formatRemaining(this.remainingSeconds(elapsed))}\x1b[0m`);
     this.clear();
@@ -100,39 +104,17 @@ class HumanProgressReporter extends BaseProgressReporter {
 
   notice(kind, message) {
     this.clear();
-    const marker = kind === 'error' ? '\x1b[31m[error]\x1b[0m' : '\x1b[33m[retry]\x1b[0m';
+    const marker = kind === 'error' ? '\x1b[31m[error]\x1b[0m' : kind === 'warning' ? '\x1b[33m[warn]\x1b[0m' : '\x1b[33m[retry]\x1b[0m';
     this.stream.write(`${marker} ${message}\n`);
     this.render();
   }
 
   recordProgress(progress) {
-    if (!Number.isFinite(progress.done) || !Number.isFinite(progress.total)) return;
-    const elapsed = this.elapsedSeconds();
-    const estimateDone = progress.eta?.done ?? progress.etaDone ?? progress.done;
-    const last = this.estimate.samples.at(-1);
-    if (!last || estimateDone > last.done) {
-      this.estimate.samples.push({ done: estimateDone, elapsed });
-      // Keep a few minutes of history so bursts of concurrent completions do not swing the rate.
-      const recent = this.estimate.samples.filter((sample) => elapsed - sample.elapsed <= RATE_WINDOW_SECONDS);
-      this.estimate.samples = recent.length >= MIN_RATE_SAMPLES ? recent : this.estimate.samples.slice(-MIN_RATE_SAMPLES);
-    }
+    this.eta.record(progress, this.elapsedSeconds());
   }
 
   remainingSeconds(elapsed) {
-    const progress = this.state.progress;
-    if (!progress || progress.done >= progress.total || progress.total <= 0) return undefined;
-    const samples = this.estimate.samples;
-    if (samples.length < 2 || elapsed < 5) return null;
-    // An explicit ETA unit lets callers estimate in steadier work than the displayed measure.
-    if (progress.eta && !Number.isFinite(progress.eta.total)) return null;
-    const first = samples[0];
-    const last = samples.at(-1);
-    const rate = (last.done - first.done) / (last.elapsed - first.elapsed);
-    if (rate <= 0) return null;
-    const remainingWork = progress.eta ? progress.eta.total - progress.eta.done : progress.total - progress.done;
-    const remainingAtLastSample = remainingWork / rate;
-    const remaining = remainingAtLastSample - (elapsed - last.elapsed);
-    return remaining > 0 ? remaining : Number.NaN;
+    return this.eta.remaining(this.state.progress, elapsed);
   }
 
   clear() {
@@ -148,21 +130,46 @@ class AgentProgressReporter extends BaseProgressReporter {
     super(options);
     this.intervalSeconds = options.intervalSeconds;
     this.lastWrittenAt = -Infinity;
-    this.suppressed = 0;
+    this.lastSignature = undefined;
+    this.lastFailed = 0;
+    this.eta = new EtaEstimator();
+    this.latest = {};
   }
 
+  // Lines carry the workflow, stage mix, counts, failures and ETA, and repeat only when something changed.
   report(input) {
     const event = normalizeEvent(input);
     const elapsed = this.elapsedSeconds();
-    const important = IMPORTANT_TYPES.has(event.type);
-    if (!important && elapsed - this.lastWrittenAt < this.intervalSeconds) { this.suppressed += 1; return; }
-    const suppressed = this.suppressed ? ` suppressed=${this.suppressed}` : '';
-    const phase = event.phase ? ` phase=${JSON.stringify(event.phase)}` : '';
-    const metrics = event.metrics && Object.keys(event.metrics).length ? ` metrics=${JSON.stringify(event.metrics)}` : '';
-    const message = event.message ?? event.current ?? event.title ?? event.type;
-    this.stream.write(`[progress] elapsed=${Math.round(elapsed)}s${suppressed}${phase}${metrics} message=${JSON.stringify(message)}\n`);
+    if (event.workflow) this.latest.workflow = event.workflow;
+    if (event.progress) { this.latest.progress = event.progress; this.eta.record(event.progress, elapsed); }
+    if (event.metrics) this.latest.metrics = event.metrics;
+    const failed = Number(event.metrics?.failed ?? this.lastFailed);
+    const newFailure = failed > this.lastFailed;
+    this.lastFailed = failed;
+    if (!IMPORTANT_TYPES.has(event.type) && !newFailure) {
+      if (elapsed - this.lastWrittenAt < this.intervalSeconds) return;
+      if (this.signature() === this.lastSignature && elapsed - this.lastWrittenAt < this.intervalSeconds * 4) return;
+    }
+    const parts = [`elapsed=${Math.round(elapsed)}s`];
+    if (this.latest.workflow) parts.push(`workflow=${this.latest.workflow}`);
+    if (event.type !== 'update' && event.type !== 'progress') parts.push(`event=${event.type}`);
+    if (event.phase) parts.push(`phase=${formatValue(event.phase)}`);
+    const progress = event.type === 'complete' && !event.progress ? undefined : this.latest.progress;
+    if (progress && Number.isFinite(progress.total) && progress.total > 0) {
+      parts.push(`progress=${formatValue(`${progress.done}/${progress.total} ${progress.label ?? ''}`.trim())}`);
+      const remaining = this.eta.remaining(progress, elapsed);
+      if (Number.isFinite(remaining)) parts.push(`eta=${compactDuration(remaining)}`);
+    }
+    for (const [key, value] of Object.entries(this.latest.metrics ?? {})) parts.push(`${key}=${formatValue(value)}`);
+    parts.push(`message=${JSON.stringify(event.message ?? event.current ?? event.title ?? event.type)}`);
+    this.stream.write(`[progress] ${parts.join(' ')}\n`);
     this.lastWrittenAt = elapsed;
-    this.suppressed = 0;
+    this.lastSignature = this.signature();
+  }
+
+  signature() {
+    const progress = this.latest.progress;
+    return JSON.stringify([progress?.done, progress?.total, this.latest.metrics]);
   }
 }
 
@@ -187,7 +194,7 @@ function eventType(message) {
   return 'progress';
 }
 
-function normalizeEvent(input) {
+export function normalizeEvent(input) {
   if (typeof input === 'string') return { type: eventType(input), message: input };
   if (!input || typeof input !== 'object') throw new TypeError('Progress events must be strings or objects');
   return { type: 'update', ...input };
@@ -227,4 +234,134 @@ function fitTerminalLine(line, width) {
     else return `${output}\x1b[0m`;
   }
   return output;
+}
+
+function formatValue(value) {
+  const text = String(value);
+  return /^[\w.:,/%+-]+$/.test(text) ? text : JSON.stringify(text);
+}
+
+function formatMetrics(metrics) {
+  return Object.entries(metrics).map(([key, value]) => `${key} ${value}`).join(' · ');
+}
+
+function compactDuration(seconds) {
+  const rounded = Math.max(0, Math.round(seconds));
+  if (rounded < 60) return `${rounded}s`;
+  const minutes = Math.floor(rounded / 60);
+  return minutes < 60 ? `${minutes}m${String(rounded % 60).padStart(2, '0')}s` : `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, '0')}m`;
+}
+
+// Estimates remaining time from the recent completion rate of the job's steadiest work unit.
+export class EtaEstimator {
+  constructor() { this.samples = []; }
+
+  record(progress, elapsed) {
+    if (!Number.isFinite(progress.done) || !Number.isFinite(progress.total)) return;
+    const estimateDone = progress.eta?.done ?? progress.etaDone ?? progress.done;
+    const last = this.samples.at(-1);
+    if (!last || estimateDone > last.done) {
+      this.samples.push({ done: estimateDone, elapsed });
+      // Keep a few minutes of history so bursts of concurrent completions do not swing the rate.
+      const recent = this.samples.filter((sample) => elapsed - sample.elapsed <= RATE_WINDOW_SECONDS);
+      this.samples = recent.length >= MIN_RATE_SAMPLES ? recent : this.samples.slice(-MIN_RATE_SAMPLES);
+    }
+  }
+
+  remaining(progress, elapsed) {
+    if (!progress || progress.done >= progress.total || progress.total <= 0) return undefined;
+    const samples = this.samples;
+    if (samples.length < 2 || elapsed < 5) return null;
+    // An explicit ETA unit lets callers estimate in steadier work than the displayed measure.
+    if (progress.eta && !Number.isFinite(progress.eta.total)) return null;
+    const first = samples[0];
+    const last = samples.at(-1);
+    const rate = (last.done - first.done) / (last.elapsed - first.elapsed);
+    if (rate <= 0) return null;
+    const remainingWork = progress.eta ? progress.eta.total - progress.eta.done : progress.total - progress.done;
+    const remainingAtLastSample = remainingWork / rate;
+    const remaining = remainingAtLastSample - (elapsed - last.elapsed);
+    return remaining > 0 ? remaining : Number.NaN;
+  }
+}
+
+// Mirrors progress to <work-dir>/progress.json (latest snapshot) and events.jsonl (important events) so agents can read
+// state without opening the SQLite journal. Write failures never affect the run.
+export function createFileSink({ directory, pid = process.pid, startedAt = Date.now(), now = () => Date.now(), command }) {
+  const snapshotPath = path.join(directory, 'progress.json');
+  const eventsPath = path.join(directory, 'events.jsonl');
+  const eta = new EtaEstimator();
+  const state = { pid, state: 'running', startedAt: new Date(startedAt).toISOString(), ...(command ? { command } : {}), warnings: [], failures: [] };
+  let lastSnapshotAt = 0;
+  let lastEventAt = 0;
+  let ready = false;
+  // The estimator needs the full progress (including its ETA unit); the snapshot only exposes the displayed measure.
+  let latestProgress;
+  const prepare = () => {
+    if (ready) return true;
+    try {
+      mkdirSync(directory, { recursive: true });
+      try { if (statSync(eventsPath).size > 2_000_000) writeFileSync(eventsPath, ''); } catch { /* no events file yet */ }
+      ready = true;
+    } catch { /* observability is best effort */ }
+    return ready;
+  };
+  const writeSnapshot = () => {
+    if (!prepare()) return;
+    const elapsedSeconds = Math.round((now() - startedAt) / 1000);
+    const remaining = eta.remaining(latestProgress, elapsedSeconds);
+    const snapshot = { ...state, updatedAt: new Date(now()).toISOString(), elapsedSeconds, ...(Number.isFinite(remaining) ? { etaSeconds: Math.round(remaining) } : {}) };
+    try {
+      const temporary = `${snapshotPath}.${pid}.tmp`;
+      writeFileSync(temporary, `${JSON.stringify(snapshot, null, 2)}\n`);
+      renameSync(temporary, snapshotPath);
+    } catch { /* best effort */ }
+    lastSnapshotAt = now();
+  };
+  return {
+    snapshotPath,
+    eventsPath,
+    report(input) {
+      let event;
+      try { event = normalizeEvent(input); } catch { return; }
+      if (event.workflow) state.workflow = event.workflow;
+      if (event.title) state.title = event.title;
+      if (event.details?.operationId) state.operationId = event.details.operationId;
+      if (event.details?.journalPath) state.journalPath = event.details.journalPath;
+      if (event.current || event.message) state.current = event.current ?? event.message;
+      if (event.progress) {
+        state.progress = { done: event.progress.done, total: event.progress.total, label: event.progress.label };
+        latestProgress = event.progress;
+        eta.record(event.progress, Math.round((now() - startedAt) / 1000));
+      }
+      if (event.metrics) state.metrics = event.metrics;
+      if (event.type === 'warning') state.warnings = [...state.warnings, event.message].slice(-5);
+      if (event.type === 'error') { state.lastError = event.message; state.failures = [...state.failures, event.message].slice(-20); }
+      const important = IMPORTANT_TYPES.has(event.type);
+      if (important || now() - lastSnapshotAt >= 1000) writeSnapshot();
+      if (important || now() - lastEventAt >= 5000) {
+        if (prepare()) {
+          try { appendFileSync(eventsPath, `${JSON.stringify({ at: new Date(now()).toISOString(), pid, ...event })}\n`); } catch { /* best effort */ }
+        }
+        lastEventAt = now();
+      }
+    },
+    finish(status, message) {
+      state.state = status;
+      if (message) state.current = message;
+      writeSnapshot();
+    },
+    close() {},
+  };
+}
+
+// Lets the CLI create the console reporter before it knows which work directory the command uses.
+export function createProgressHub(reporter) {
+  let sink;
+  return {
+    report(event) { reporter.report(event); sink?.report(event); },
+    attach(newSink) { sink = newSink; },
+    finish(status, message) { sink?.finish(status, message); },
+    close() { reporter.close(); sink?.close(); },
+  };
 }

@@ -70,15 +70,15 @@ test('no-resume is rejected', () => {
 
 test('interruption output provides the exact command needed to resume', () => {
   const args = ['--progress', 'human', 'dataset', 'build', '--corpus', 'docs and notes', '--work-dir', '.work/build', '--fresh'];
-  const command = "npm start -- --progress human dataset build --corpus 'docs and notes' --work-dir .work/build --resume";
+  const command = "skillfid --progress human dataset build --corpus 'docs and notes' --work-dir .work/build --resume";
   assert.equal(resumeCommand(args), command);
   assert.equal(interruptionMessage(args), `Extraction interrupted\nAny completed work was saved.\n\nRun this command to continue:\n${command}\n`);
   const recalibrationArgs = ['dataset', 'recalibrate', '--dataset', 'datasets/source', '--work-dir', '.work/recalibrate', '--fresh'];
-  const recalibrationCommand = 'npm start -- dataset recalibrate --dataset datasets/source --work-dir .work/recalibrate --resume';
+  const recalibrationCommand = 'skillfid dataset recalibrate --dataset datasets/source --work-dir .work/recalibrate --resume';
   assert.equal(resumeCommand(recalibrationArgs), recalibrationCommand);
   assert.equal(interruptionMessage(recalibrationArgs), `Recalibration interrupted\nAny completed work was saved.\n\nRun this command to continue:\n${recalibrationCommand}\n`);
   const baselineArgs = ['eval', 'baseline', '--dataset', 'datasets/source', '--work-dir', '.work/baseline', '--fresh'];
-  const baselineCommand = 'npm start -- eval baseline --dataset datasets/source --work-dir .work/baseline --resume';
+  const baselineCommand = 'skillfid eval baseline --dataset datasets/source --work-dir .work/baseline --resume';
   assert.equal(resumeCommand(baselineArgs), baselineCommand);
   assert.equal(interruptionMessage(baselineArgs), `Baseline interrupted\nAny completed work was saved.\n\nRun this command to continue:\n${baselineCommand}\n`);
   assert.equal(resumeCommand(['dataset', 'verify', '--dataset', 'example']), undefined);
@@ -165,17 +165,51 @@ test('human operation status is concise and contains no internal identifiers or 
   } finally { await rm(workDir, { recursive: true, force: true }); }
 });
 
-test('human operation status identifies expired work as stalled', async () => {
+test('operation status reports an abandoned run as interrupted with stale jobs and a next step', async () => {
   const workDir = '.work/js-tests/cli-stalled-status';
   const journal = await OperationJournal.open(`${workDir}/operations.sqlite`, { clock: () => 0, leaseMs: 1 });
   const id = operationId('evaluation', { stale: true });
   journal.startOperation({ operationId: id, kind: 'evaluation', inputs: { stale: true } });
-  const job = journal.ensureJob({ operationId: id, stage: 'condition', entityId: 'one', inputs: {} });
+  const job = journal.ensureJob({ operationId: id, stage: 'condition', entityId: 'one', label: 'question one', inputs: {} });
   journal.claimJob(job.jobId, 'abandoned-worker');
+  // Simulate a crash: the process never released its work.
+  journal.workers.clear();
   journal.close();
   try {
-    const result = spawnSync(process.execPath, ['src/cli.js', '--quiet', 'operation', 'status', '--work-dir', workDir], { encoding: 'utf8' });
+    const human = spawnSync(process.execPath, ['src/cli.js', '--quiet', 'operation', 'status', '--work-dir', workDir, '--jobs'], { encoding: 'utf8' });
+    assert.equal(human.status, 0);
+    assert.match(human.stdout, /evaluation  interrupted  0\/1 jobs complete · last activity/);
+    assert.match(human.stdout, /running: question one \(stale lease\)/);
+    assert.match(human.stdout, /next: .*Re-run the same command/);
+    const json = JSON.parse(spawnSync(process.execPath, ['src/cli.js', '--quiet', '--json', 'operation', 'status', '--work-dir', workDir, '--jobs'], { encoding: 'utf8' }).stdout);
+    assert.equal(json.operations[0].health, 'interrupted');
+    assert.equal(json.operations[0].staleJobs, 1);
+    assert.deepEqual(json.operations[0].stages.condition, { pending: 0, running: 1, completed: 0, failed: 0 });
+    const waited = spawnSync(process.execPath, ['src/cli.js', '--quiet', '--json', 'operation', 'wait', '--work-dir', workDir], { encoding: 'utf8' });
+    assert.equal(waited.status, 3);
+    assert.equal(JSON.parse(waited.stdout).event, 'interrupted');
+    const recovered = JSON.parse(spawnSync(process.execPath, ['src/cli.js', '--quiet', '--json', 'operation', 'recover', '--work-dir', workDir], { encoding: 'utf8' }).stdout);
+    assert.equal(recovered.recovered, 1);
+  } finally { await rm(workDir, { recursive: true, force: true }); }
+});
+
+test('--json failures print one structured error line to stderr and nothing to stdout', () => {
+  const result = spawnSync(process.execPath, ['src/cli.js', '--json', '--quiet', 'dataset', 'build'], { encoding: 'utf8' });
+  assert.equal(result.status, 2);
+  assert.equal(result.stdout, '');
+  assert.equal(JSON.parse(result.stderr).error.code, 'USAGE');
+});
+
+test('operation wait returns completed immediately for a finished operation', async () => {
+  const workDir = '.work/js-tests/cli-wait-complete';
+  const journal = await OperationJournal.open(`${workDir}/operations.sqlite`);
+  const id = operationId('dataset', { done: true });
+  journal.startOperation({ operationId: id, kind: 'dataset', inputs: { done: true } });
+  journal.completeOperation(id, 'datasets/example');
+  journal.close();
+  try {
+    const result = spawnSync(process.execPath, ['src/cli.js', '--quiet', '--json', 'operation', 'wait', '--work-dir', workDir, '--operation-id', id], { encoding: 'utf8' });
     assert.equal(result.status, 0);
-    assert.match(result.stdout, /evaluation  stalled  0\/1 jobs complete · last activity/);
+    assert.equal(JSON.parse(result.stdout).event, 'completed');
   } finally { await rm(workDir, { recursive: true, force: true }); }
 });
