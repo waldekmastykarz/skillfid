@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.3](https://github.com/waldekmastykarz/knowledge-eval/compare/v0.2.2...v0.2.3) (2026-10-21)
+
+### Maintenance
+
+- Updated `@github/copilot-sdk` to 1.0.20
+
 ## [0.2.2](https://github.com/waldekmastykarz/knowledge-eval/compare/v0.2.1...v0.2.2) (2026-10-20)
 
 ### Maintenance
