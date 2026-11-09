@@ -93,6 +93,8 @@ test('runs sections concurrently and resumes completed sections after failure', 
   let active = 0;
   let peak = 0;
   let failBeta = true;
+  const { promise: bothSectionsStarted, resolve: releaseSections, reject: rejectSections } = Promise.withResolvers();
+  let sectionTimer;
   const runner = {
     async run(_workspace, prompt) {
       const name = prompt.includes('Alpha limit') ? 'alpha' : prompt.includes('Beta limit') ? 'beta' : undefined;
@@ -100,10 +102,20 @@ test('runs sections concurrently and resumes completed sections after failure', 
       active += 1;
       peak = Math.max(peak, active);
       const firstSectionCall = name && calls[name] === 1;
-      for (let turn = 0; turn < (firstSectionCall ? 100 : 1) && (!calls.alpha || !calls.beta); turn += 1) {
-        await new Promise((resolve) => setImmediate(resolve));
+      try {
+        if (firstSectionCall) {
+          if (calls.alpha && calls.beta) {
+            clearTimeout(sectionTimer);
+            releaseSections();
+          } else {
+            sectionTimer ??= setTimeout(() => rejectSections(new Error('Timed out waiting for both sections to start')), 5000);
+          }
+          await bothSectionsStarted;
+        }
+      } finally {
+        clearTimeout(sectionTimer);
+        active -= 1;
       }
-      active -= 1;
       if (name === 'beta' && failBeta) throw new Error('interrupted beta');
       if (prompt.includes('Inventory every independently testable')) {
         const existing = JSON.parse(prompt.split('EXISTING ITEMS:\n')[1].split('\nSOURCE SECTION:')[0]);
