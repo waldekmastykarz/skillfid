@@ -1,6 +1,6 @@
 {
   "name": "skillfid",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "description": "Evaluate how faithfully agent skills apply their source documentation",
   "keywords": [
     "agent-skills",
