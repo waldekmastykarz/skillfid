@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, test } from 'node:test';
 
-import { approveAll } from '@github/copilot-sdk';
+import { approveAll } from '@microsoft/copilot-sdk';
 
 import { CopilotSdkRunner } from '../src/copilot-sdk.js';
 
@@ -24,7 +24,7 @@ test('reuses one SDK client across isolated concurrent sessions', async () => {
     async createSession(config) {
       created.push(config);
       return {
-        async sendAndWait({ prompt }) { return { data: { content: config.agent ? `skill:${prompt}` : `closed:${prompt}` } }; },
+        async sendAndWait({ prompt }) { return { data: { content: config.agents ? `skill:${prompt}` : `closed:${prompt}` } }; },
         async disconnect() {},
       };
     },
@@ -44,14 +44,15 @@ test('reuses one SDK client across isolated concurrent sessions', async () => {
   assert.equal(Object.hasOwn(clientOptions, 'useLoggedInUser'), false);
   assert.equal(closed.answer, 'closed:Question');
   assert.equal(skill.answer, 'skill:Question');
-  assert.equal(created[0].skillDirectories.length, 0);
-  assert.deepEqual(created[1].skillDirectories, [skillDirectory]);
-  assert.equal(created[1].agent, 'skillfid-explicit');
-  assert.deepEqual(created[1].customAgents[0].skills, ['ax-practitioner']);
-  assert.equal(created[1].onPermissionRequest, approveAll);
-  assert.deepEqual(created[1].excludedTools, ['shell', 'write', 'url']);
+  assert.equal(clientOptions.mode, 'coding-agent');
+  assert.equal(created[0].skills.directories.length, 0);
+  assert.deepEqual(created[1].skills.directories, [skillDirectory]);
+  assert.equal(created[1].agents.selected, 'skillfid-explicit');
+  assert.deepEqual(created[1].agents.definitions[0].skills, ['ax-practitioner']);
+  assert.equal(created[1].permissions.onRequest, approveAll);
+  assert.deepEqual(created[1].tools.excludedTools, ['shell', 'write', 'url']);
   assert.equal(created[1].enableConfigDiscovery, false);
-  assert.equal(created[1].enableSessionStore, false);
+  assert.equal(created[1].state.enableCrossSessionStore, false);
 });
 
 test('lists configured skills as project skills and formats the runtime version', async () => {
