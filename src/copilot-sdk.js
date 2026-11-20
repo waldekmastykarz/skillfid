@@ -2,7 +2,7 @@ import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 
-import { approveAll, CopilotClient, RuntimeConnection } from '@github/copilot-sdk';
+import { approveAll, CopilotClient, RuntimeConnection } from '@microsoft/copilot-sdk';
 
 import { TraceCollector } from './trace.js';
 
@@ -30,21 +30,20 @@ export class CopilotSdkRunner {
     const invocation = explicitSkillInvocation(prompt, skillDirectories);
     for (let attempt = 0; attempt <= this.config.maxTimeoutRetries; attempt += 1) {
       const session = await client.createSession({
-        availableTools: ['builtin:*'],
-        excludedTools: ['shell', 'write', 'url'],
+        tools: { availableTools: ['builtin:*'], excludedTools: ['shell', 'write', 'url'] },
         enableConfigDiscovery: false,
-        enableSessionStore: false,
-        enableSkills: skillDirectories.length > 0,
-        memory: { enabled: false },
+        state: { enableCrossSessionStore: false, memory: { enabled: false } },
+        skills: { enabled: skillDirectories.length > 0, directories: skillDirectories },
         model: this.config.model,
-        onPermissionRequest: approveAll,
-        reasoningEffort: this.config.reasoningEffort,
-        skillDirectories,
-        skipCustomInstructions: true,
+        permissions: { onRequest: approveAll },
+        inference: { reasoningEffort: this.config.reasoningEffort },
+        instructions: { skipCustomInstructions: true },
         workingDirectory: path.resolve(workspace),
         ...(invocation ? {
-          agent: 'skillfid-explicit',
-          customAgents: [{ name: 'skillfid-explicit', prompt: 'Answer the user directly and follow the preloaded skill instructions.', skills: [invocation.name], tools: null }],
+          agents: {
+            selected: 'skillfid-explicit',
+            definitions: [{ name: 'skillfid-explicit', prompt: 'Answer the user directly and follow the preloaded skill instructions.', skills: [invocation.name], tools: null }],
+          },
         } : {}),
       });
       const collector = new TraceCollector({ workspace, skillsAvailable: skillDirectories.length > 0, preloadedSkill: invocation ? { name: invocation.name, path: path.join(invocation.directory, 'SKILL.md') } : undefined });
@@ -70,14 +69,12 @@ export class CopilotSdkRunner {
     const client = await this.#client();
     const skillDirectories = await projectSkillDirectories(workspace);
     const session = await client.createSession({
-      availableTools: [],
+      tools: { availableTools: [] },
       enableConfigDiscovery: false,
-      enableSessionStore: false,
-      enableSkills: skillDirectories.length > 0,
-      memory: { enabled: false },
-      onPermissionRequest: approveAll,
-      skillDirectories,
-      skipCustomInstructions: true,
+      state: { enableCrossSessionStore: false, memory: { enabled: false } },
+      skills: { enabled: skillDirectories.length > 0, directories: skillDirectories },
+      permissions: { onRequest: approveAll },
+      instructions: { skipCustomInstructions: true },
       workingDirectory: path.resolve(workspace),
     });
     try {
@@ -108,12 +105,14 @@ export class CopilotSdkRunner {
   }
 
   async #startClient() {
-    const options = {
-      baseDirectory: this.config.isolatedHome ? path.resolve(this.config.isolatedHome) : undefined,
-      logLevel: 'error',
-    };
-    if (this.config.executable) options.connection = RuntimeConnection.forStdio({ path: path.resolve(this.config.executable) });
-    const client = this.createClient(options);
+    const baseDirectory = this.config.isolatedHome ? path.resolve(this.config.isolatedHome) : undefined;
+    const client = this.createClient({
+      mode: 'coding-agent',
+      runtime: this.config.executable
+        ? RuntimeConnection.forSpawnedStdio({ path: path.resolve(this.config.executable), baseDirectory })
+        : RuntimeConnection.forDefault({ baseDirectory }),
+      observability: { logLevel: 'error' },
+    });
     await client.start();
     return client;
   }

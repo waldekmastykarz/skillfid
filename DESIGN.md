@@ -502,7 +502,7 @@ Use a dependency-free JavaScript CLI on Node.js 24 or later with:
 - JSON manifests for lineage and content-addressed dataset verification.
 - JSONL for portable dataset and run records.
 - Separate `answers.jsonl`, `judgments.jsonl`, and `diagnoses.jsonl` run artifacts.
-- `@github/copilot-sdk` clients backed by Copilot CLI.
+- `@microsoft/copilot-sdk` clients backed by Copilot CLI.
 - Content-addressed run directories inside the workspace.
 
 Commands:
